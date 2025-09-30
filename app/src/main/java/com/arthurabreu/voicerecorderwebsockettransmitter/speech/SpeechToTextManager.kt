@@ -16,10 +16,15 @@ import kotlinx.coroutines.flow.StateFlow
  * Clean, minimal manager around Android SpeechRecognizer API.
  * - Handles setup, start/stop, and lifecycle.
  * - Exposes state via StateFlows.
+ * - Supports continuous dictation by auto-restarting until user presses Stop.
  */
 class SpeechToTextManager(private val context: Context) : SpeechToTextService {
 
     private var speechRecognizer: SpeechRecognizer? = null
+
+    // Control flags
+    private var shouldContinue = false
+    private var lastLanguageTag: String = java.util.Locale.getDefault().toLanguageTag()
 
     // Public immutable state
     private val _partialText = MutableStateFlow("")
@@ -44,22 +49,48 @@ class SpeechToTextManager(private val context: Context) : SpeechToTextService {
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() {}
                     override fun onPartialResults(partialResults: Bundle?) {
+                        if (!shouldContinue) return
                         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         if (!matches.isNullOrEmpty()) {
                             _partialText.value = matches.first()
                         }
                     }
                     override fun onResults(results: Bundle?) {
+                        if (!shouldContinue) {
+                            _isListening.value = false
+                            return
+                        }
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         if (!matches.isNullOrEmpty()) {
-                            _finalText.value = matches.first()
+                            val text = matches.first()
+                            // Append to accumulated final text
+                            _finalText.value = listOf(_finalText.value, text)
+                                .filter { it.isNotBlank() }
+                                .joinToString(separator = " ")
                             _partialText.value = ""
                         }
-                        _isListening.value = false
+                        // Keep listening continuously
+                        restartListening()
                     }
                     override fun onError(error: Int) {
-                        _isListening.value = false
-                        _error.value = mapError(error)
+                        if (!shouldContinue) {
+                            _isListening.value = false
+                            _error.value = mapError(error)
+                            return
+                        }
+                        when (error) {
+                            SpeechRecognizer.ERROR_NO_MATCH,
+                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                                // Non-fatal for continuous mode: just restart
+                                restartListening()
+                            }
+                            else -> {
+                                // Fatal: stop and expose error
+                                _isListening.value = false
+                                _error.value = mapError(error)
+                                shouldContinue = false
+                            }
+                        }
                     }
                     override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
@@ -69,6 +100,23 @@ class SpeechToTextManager(private val context: Context) : SpeechToTextService {
         }
     }
 
+    private fun buildIntent(): Intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, lastLanguageTag)
+        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+        }
+    }
+
+    private fun restartListening() {
+        val recognizer = speechRecognizer ?: return
+        // Keep the flag and isListening as true and restart the session
+        _isListening.value = true
+        recognizer.startListening(buildIntent())
+    }
+
     @MainThread
     override fun startListening(languageTag: String) {
         if (_isListening.value) return
@@ -76,30 +124,25 @@ class SpeechToTextManager(private val context: Context) : SpeechToTextService {
             _error.value = "Speech recognizer not initialized."
             return
         }
+        lastLanguageTag = languageTag
+        shouldContinue = true
         _partialText.value = ""
         _error.value = null
         _isListening.value = true
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
-            }
-        }
-        recognizer.startListening(intent)
+        recognizer.startListening(buildIntent())
     }
 
     @MainThread
     override fun stopListening() {
-        if (!_isListening.value) return
+        if (!_isListening.value && !shouldContinue) return
+        shouldContinue = false
         speechRecognizer?.stopListening()
         _isListening.value = false
+        // Do not clear partial/final text; user asked to stop adding further text only
     }
 
     override fun release() {
+        shouldContinue = false
         _isListening.value = false
         speechRecognizer?.destroy()
         speechRecognizer = null
