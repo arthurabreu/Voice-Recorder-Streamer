@@ -8,6 +8,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.annotation.MainThread
+import com.arthurabreu.voicerecorderwebsockettransmitter.speech.domain.SpeechToTextService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -16,22 +17,22 @@ import kotlinx.coroutines.flow.StateFlow
  * - Handles setup, start/stop, and lifecycle.
  * - Exposes state via StateFlows.
  */
-class SpeechToTextManager(private val context: Context) {
+class SpeechToTextManager(private val context: Context) : SpeechToTextService {
 
     private var speechRecognizer: SpeechRecognizer? = null
 
     // Public immutable state
     private val _partialText = MutableStateFlow("")
-    val partialText: StateFlow<String> = _partialText
+    override val partialText: StateFlow<String> = _partialText
 
     private val _finalText = MutableStateFlow("")
-    val finalText: StateFlow<String> = _finalText
+    override val finalText: StateFlow<String> = _finalText
 
     private val _isListening = MutableStateFlow(false)
-    val isListening: StateFlow<Boolean> = _isListening
+    override val isListening: StateFlow<Boolean> = _isListening
 
     private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error
+    override val error: StateFlow<String?> = _error
 
     init {
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -69,7 +70,7 @@ class SpeechToTextManager(private val context: Context) {
     }
 
     @MainThread
-    fun startListening(languageTag: String = java.util.Locale.getDefault().toLanguageTag()) {
+    override fun startListening(languageTag: String) {
         if (_isListening.value) return
         val recognizer = speechRecognizer ?: run {
             _error.value = "Speech recognizer not initialized."
@@ -92,13 +93,13 @@ class SpeechToTextManager(private val context: Context) {
     }
 
     @MainThread
-    fun stopListening() {
+    override fun stopListening() {
         if (!_isListening.value) return
         speechRecognizer?.stopListening()
         _isListening.value = false
     }
 
-    fun release() {
+    override fun release() {
         _isListening.value = false
         speechRecognizer?.destroy()
         speechRecognizer = null
