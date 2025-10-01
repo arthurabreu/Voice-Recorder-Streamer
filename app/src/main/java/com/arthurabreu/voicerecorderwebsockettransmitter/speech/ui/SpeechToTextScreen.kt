@@ -28,6 +28,7 @@ fun SpeechToTextScreen(
     val uiState by viewModel.uiState.collectAsState()
     val micPermission = rememberMicrophonePermission()
 
+    // Bottom bar now has a language selector beside the Start/Stop button
     Scaffold(
         bottomBar = {
             Column(
@@ -36,13 +37,38 @@ fun SpeechToTextScreen(
                     .navigationBarsPadding()
                     .padding(16.dp)
             ) {
-                ControlButton(
-                    isListening = uiState.isListening,
-                    hasAudioPermission = micPermission.hasPermission,
-                    requestPermission = { micPermission.requestPermission { viewModel.onStart() } },
-                    onStart = { viewModel.onStart() },
-                    onStop = { viewModel.onStop() }
+                // Keep the selected language locally in the screen
+                val options = listOf(
+                    LanguageOption("Português (Brasil)", "pt-BR"),
+                    LanguageOption("Español", "es-ES"),
+                    LanguageOption("English", "en-US")
                 )
+                val defaultTag = java.util.Locale.getDefault().toLanguageTag()
+                val defaultOption = options.firstOrNull { opt ->
+                    // match by language code prefix (pt, es, en)
+                    defaultTag.startsWith(opt.tag.substring(0, 2), ignoreCase = true)
+                } ?: options.last()
+                val selectedState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(defaultOption) }
+
+                androidx.compose.foundation.layout.Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    LanguageSelectorButton(
+                        selected = selectedState.value,
+                        options = options,
+                        onSelected = { selectedState.value = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ControlButton(
+                        isListening = uiState.isListening,
+                        hasAudioPermission = micPermission.hasPermission,
+                        requestPermission = { micPermission.requestPermission { viewModel.onStart(selectedState.value.tag) } },
+                        onStart = { viewModel.onStart(selectedState.value.tag) },
+                        onStop = { viewModel.onStop() },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -103,7 +129,8 @@ private fun ControlButton(
     hasAudioPermission: Boolean,
     requestPermission: () -> Unit,
     onStart: () -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Button(onClick = {
         if (!hasAudioPermission) {
@@ -113,7 +140,40 @@ private fun ControlButton(
         } else {
             onStart()
         }
-    }, modifier = Modifier.fillMaxWidth()) {
+    }, modifier = modifier.fillMaxWidth()) {
         Text(if (isListening) "Stop Listening" else "Start Listening")
+    }
+}
+
+
+// Represent a language choice with label and BCP-47 language tag
+private data class LanguageOption(val label: String, val tag: String)
+
+@Composable
+private fun LanguageSelectorButton(
+    selected: LanguageOption,
+    options: List<LanguageOption>,
+    onSelected: (LanguageOption) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val expanded = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    Column(modifier = modifier) {
+        Button(onClick = { expanded.value = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(selected.label)
+        }
+        androidx.compose.material3.DropdownMenu(
+            expanded = expanded.value,
+            onDismissRequest = { expanded.value = false }
+        ) {
+            options.forEach { option ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = {
+                        onSelected(option)
+                        expanded.value = false
+                    }
+                )
+            }
+        }
     }
 }

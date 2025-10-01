@@ -3,8 +3,6 @@ package com.arthurabreu.voicerecorderwebsockettransmitter.speech.presentation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arthurabreu.voicerecorderwebsockettransmitter.speech.domain.SpeechToTextService
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.domain.usecase.StartListeningUseCase
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.domain.usecase.StopListeningUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -12,6 +10,17 @@ import kotlinx.coroutines.flow.stateIn
 
 /**
  * Aggregated UI state to simplify Compose collection.
+ *
+ * How uiState works in this ViewModel:
+ * - We observe four StateFlows coming from the SpeechToTextService:
+ *   isListening, partialText, finalText, and error.
+ * - Using Kotlin Flow's `combine`, we merge the latest values from those flows
+ *   into a single immutable data object [SpeechUiState]. Any time any of the
+ *   source flows emits, the combined object is recomputed.
+ * - We then call `stateIn(viewModelScope, WhileSubscribed(...), initialValue)` so
+ *   the combined flow becomes a hot StateFlow that the UI can collect without
+ *   redoing combine work for each collector, and with a lifecycle-aware sharing
+ *   policy that keeps it active only while the UI is subscribed.
  */
  data class SpeechUiState(
      val isListening: Boolean = false,
@@ -21,9 +30,7 @@ import kotlinx.coroutines.flow.stateIn
  )
 
 class SpeechToTextViewModel(
-    private val service: SpeechToTextService,
-    private val startListening: StartListeningUseCase,
-    private val stopListening: StopListeningUseCase
+    private val service: SpeechToTextService
 ) : ViewModel() {
 
     // Expose a single UI state for Compose
@@ -46,11 +53,11 @@ class SpeechToTextViewModel(
     )
 
     fun onStart(languageTag: String = java.util.Locale.getDefault().toLanguageTag()) {
-        startListening(languageTag)
+        service.startListening(languageTag)
     }
 
     fun onStop() {
-        stopListening()
+        service.stopListening()
     }
 
     override fun onCleared() {
