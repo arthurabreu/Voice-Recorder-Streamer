@@ -8,30 +8,58 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.annotation.MainThread
+import com.arthurabreu.voicerecorderwebsockettransmitter.speech.domain.SpeechToTextService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Clean, minimal manager around Android SpeechRecognizer API.
- * - Handles setup, start/stop, and lifecycle.
- * - Exposes state via StateFlows.
+ *
+ * What this class does (high level):
+ * - Owns a [SpeechRecognizer] instance and its [RecognitionListener].
+ * - Translates the Android callback-style API into cold, observable [StateFlow]s
+ *   so the UI can simply collect state.
+ * - Provides start/stop/release functions and a simple strategy for
+ *   continuous dictation (auto-restart) until the user stops.
+ *
+ * Key observable state:
+ * - [partialText]: the in-progress hypothesis as the user is speaking.
+ * - [finalText]: accumulated confirmed results across turns (we append).
+ * - [isListening]: whether the recognizer session is currently active from the UI point of view.
+ * - [error]: a human-readable message when an error occurs.
+ *
+ * Continuous listening strategy:
+ * - While [shouldContinue] is true, after each final result or benign errors like
+ *   NO_MATCH/SPEECH_TIMEOUT, we invoke [restartListening] to immediately start a new session.
+ * - This gives a "continuous dictation" experience, even though the platform API
+ *   itself is session-based.
+ *
+ * Threading note:
+ * - We use [MutableStateFlow] which is thread-safe for simple value writes. The recognizer
+ *   callbacks are delivered on the main thread by Android; we also annotate entry points
+ *   with [@MainThread] for clarity.
  */
-class SpeechToTextManager(private val context: Context) {
+class SpeechToTextManager(private val context: Context) : SpeechToTextService {
 
     private var speechRecognizer: SpeechRecognizer? = null
 
-    // Public immutable state
+    // Control flags
+    private var shouldContinue = false // when true, we auto-restart sessions to simulate continuous dictation
+    private var lastLanguageTag: String = java.util.Locale.getDefault().toLanguageTag()
+
+    // Public immutable state (exposed via the SpeechToTextService interface)
+    // We keep MutableStateFlow internally and expose read-only StateFlow to callers.
     private val _partialText = MutableStateFlow("")
-    val partialText: StateFlow<String> = _partialText
+    override val partialText: StateFlow<String> = _partialText // in-progress hypothesis while user is speaking
 
     private val _finalText = MutableStateFlow("")
-    val finalText: StateFlow<String> = _finalText
+    override val finalText: StateFlow<String> = _finalText // accumulated confirmed phrases
 
     private val _isListening = MutableStateFlow(false)
-    val isListening: StateFlow<Boolean> = _isListening
+    override val isListening: StateFlow<Boolean> = _isListening // UI uses this to toggle the Start/Stop button
 
     private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error
+    override val error: StateFlow<String?> = _error // non-null when an error happens
 
     init {
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -43,22 +71,48 @@ class SpeechToTextManager(private val context: Context) {
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() {}
                     override fun onPartialResults(partialResults: Bundle?) {
+                        if (!shouldContinue) return
                         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         if (!matches.isNullOrEmpty()) {
                             _partialText.value = matches.first()
                         }
                     }
                     override fun onResults(results: Bundle?) {
+                        if (!shouldContinue) {
+                            _isListening.value = false
+                            return
+                        }
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         if (!matches.isNullOrEmpty()) {
-                            _finalText.value = matches.first()
+                            val text = matches.first()
+                            // Append to accumulated final text
+                            _finalText.value = listOf(_finalText.value, text)
+                                .filter { it.isNotBlank() }
+                                .joinToString(separator = "\n")
                             _partialText.value = ""
                         }
-                        _isListening.value = false
+                        // Keep listening continuously
+                        restartListening()
                     }
                     override fun onError(error: Int) {
-                        _isListening.value = false
-                        _error.value = mapError(error)
+                        if (!shouldContinue) {
+                            _isListening.value = false
+                            _error.value = mapError(error)
+                            return
+                        }
+                        when (error) {
+                            SpeechRecognizer.ERROR_NO_MATCH,
+                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                                // Non-fatal for continuous mode: just restart
+                                restartListening()
+                            }
+                            else -> {
+                                // Fatal: stop and expose error
+                                _isListening.value = false
+                                _error.value = mapError(error)
+                                shouldContinue = false
+                            }
+                        }
                     }
                     override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
@@ -68,37 +122,50 @@ class SpeechToTextManager(private val context: Context) {
         }
     }
 
+    // Build the standard recognizer intent used for each session
+    private fun buildIntent(): Intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, lastLanguageTag) // last language chosen by ViewModel/UI
+        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true) // we want partial hypotheses as the user speaks
+        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1) // we only care about the best match
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) { // If sdk < 24
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false) // prefer online for better accuracy
+        }
+    }
+
+    private fun restartListening() {
+        val recognizer = speechRecognizer ?: return
+        // Keep the flag and isListening as true and restart the session
+        _isListening.value = true
+        recognizer.startListening(buildIntent())
+    }
+
     @MainThread
-    fun startListening(languageTag: String = java.util.Locale.getDefault().toLanguageTag()) {
+    override fun startListening(languageTag: String) {
         if (_isListening.value) return
         val recognizer = speechRecognizer ?: run {
             _error.value = "Speech recognizer not initialized."
             return
         }
+        lastLanguageTag = languageTag
+        shouldContinue = true
         _partialText.value = ""
         _error.value = null
         _isListening.value = true
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
-            }
-        }
-        recognizer.startListening(intent)
+        recognizer.startListening(buildIntent())
     }
 
     @MainThread
-    fun stopListening() {
-        if (!_isListening.value) return
+    override fun stopListening() {
+        if (!_isListening.value && !shouldContinue) return
+        shouldContinue = false
         speechRecognizer?.stopListening()
         _isListening.value = false
+        // Do not clear partial/final text; user asked to stop adding further text only
     }
 
-    fun release() {
+    override fun release() {
+        shouldContinue = false
         _isListening.value = false
         speechRecognizer?.destroy()
         speechRecognizer = null
