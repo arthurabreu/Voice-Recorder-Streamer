@@ -2,19 +2,20 @@ package com.arthurabreu.voicerecorderwebsockettransmitter.speech.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.arthurabreu.voicerecorderwebsockettransmitter.speech.presentation.SpeechToTextViewModel
@@ -27,23 +28,43 @@ fun SpeechToTextScreen(
     val uiState by viewModel.uiState.collectAsState()
     val micPermission = rememberMicrophonePermission()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(PaddingValues(16.dp))
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Header()
-        uiState.error?.let { ErrorText(it) }
-        TranscriptionCard(finalText = uiState.finalText, partial = uiState.partialText)
-        ControlButton(
-            isListening = uiState.isListening,
-            hasAudioPermission = micPermission.hasPermission,
-            requestPermission = { micPermission.requestPermission { viewModel.onStart() } },
-            onStart = { viewModel.onStart() },
-            onStop = { viewModel.onStop() }
-        )
+    Scaffold(
+        bottomBar = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(16.dp)
+            ) {
+                ControlButton(
+                    isListening = uiState.isListening,
+                    hasAudioPermission = micPermission.hasPermission,
+                    requestPermission = { micPermission.requestPermission { viewModel.onStart() } },
+                    onStart = { viewModel.onStart() },
+                    onStop = { viewModel.onStop() }
+                )
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Scrollable content area takes remaining space
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Header()
+                uiState.error?.let { ErrorText(it) }
+                TranscriptionCard(finalText = uiState.finalText, partial = uiState.partialText)
+            }
+        }
     }
 }
 
@@ -92,7 +113,7 @@ private fun ControlButton(
         } else {
             onStart()
         }
-    }) {
+    }, modifier = Modifier.fillMaxWidth()) {
         Text(if (isListening) "Stop Listening" else "Start Listening")
     }
 }
