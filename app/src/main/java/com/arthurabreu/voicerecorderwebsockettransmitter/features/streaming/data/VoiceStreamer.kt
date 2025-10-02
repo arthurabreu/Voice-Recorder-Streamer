@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 
 class VoiceStreamer(
     private val ws: VoiceWsClient,
@@ -15,6 +16,23 @@ class VoiceStreamer(
     private var recorder: android.media.AudioRecord? = null
     private var streamingJob: Job? = null
     private var onLevel: ((Float) -> Unit)? = null
+    private var wavWriter: PcmWavWriter? = null
+
+    fun startRecordingTo(file: File) {
+        if (wavWriter != null) return
+        val writer = PcmWavWriter(AudioCaptureConfig.SAMPLE_RATE, 1)
+        writer.open(file)
+        wavWriter = writer
+    }
+
+    fun stopRecording(): File? {
+        return try {
+            wavWriter?.close()
+            null
+        } finally {
+            wavWriter = null
+        }
+    }
 
     fun setOnLevelListener(listener: ((Float) -> Unit)?) {
         onLevel = listener
@@ -53,7 +71,18 @@ class VoiceStreamer(
                 """.trimIndent()
                 ws.sendText(start)
 
-                recorder = createAudioRecord().also { it.startRecording() }
+                recorder = createAudioRecord().also {
+                    try {
+                        val sessionId = it.audioSessionId
+                        if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                            try { android.media.audiofx.NoiseSuppressor.create(sessionId) } catch (_: Throwable) {}
+                        }
+                        if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
+                            try { android.media.audiofx.AutomaticGainControl.create(sessionId) } catch (_: Throwable) {}
+                        }
+                        it.startRecording()
+                    } catch (_: SecurityException) { /* permission handled by UI */ }
+                }
 
                 streamingJob = ioScope.launch(Dispatchers.IO) {
                     val buf = ByteArray(AudioCaptureConfig.FRAME_BYTES_20MS)
@@ -62,9 +91,13 @@ class VoiceStreamer(
                         val read = recorder?.read(buf, 0, buf.size) ?: -1
                         if (read > 0) {
                             onLevel?.invoke(computeLevel(buf, read))
-                            if (!ws.sendBinary(if (read == buf.size) buf else buf.copyOf(read))) {
+                            val frame = if (read == buf.size) buf else buf.copyOf(read)
+                            // Send over WS
+                            if (!ws.sendBinary(frame)) {
                                 running = false
                             }
+                            // Optionally record to WAV
+                            wavWriter?.write(frame)
                         } else if (read == android.media.AudioRecord.ERROR_INVALID_OPERATION || read == android.media.AudioRecord.ERROR_BAD_VALUE) {
                             running = false
                         }

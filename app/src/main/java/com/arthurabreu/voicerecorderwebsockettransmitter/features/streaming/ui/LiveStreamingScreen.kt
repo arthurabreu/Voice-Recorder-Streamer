@@ -1,5 +1,6 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
@@ -16,16 +17,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -51,10 +55,40 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
 
             Waveform(levels = levels, barCount = 48, barWidth = 6.dp, barGap = 2.dp)
 
+            val uiState by vm.uiState.collectAsState()
+            val context = LocalContext.current
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { vm.start("pt-BR") }) { Text("Start streaming") }
-                Button(onClick = { vm.stop() }) { Text("Stop") }
-                if (onBack != null) Button(onClick = onBack) { Text("Voltar") }
+                AnimatedContent(targetState = uiState, label = "startStopSave") { st ->
+                    when (st) {
+                        LiveStreamingViewModel.UiState.Streaming -> {
+                            Button(
+                                onClick = { vm.stop() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C))
+                            ) { Text("Stop Streaming", color = Color.White) }
+                        }
+                        LiveStreamingViewModel.UiState.Stopped -> {
+                            Button(
+                                onClick = { vm.save() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
+                            ) { Text("Save", color = Color.White) }
+                        }
+                        else -> {
+                            Button(
+                                onClick = { vm.start("pt-BR", context.cacheDir) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                            ) { Text("Start Streaming", color = Color.White) }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(visible = uiState == LiveStreamingViewModel.UiState.Stopped) {
+                    Button(
+                        onClick = { vm.cancel() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF424242))
+                    ) { Text("Cancel", color = Color.White) }
+                }
+
+                if (onBack != null && uiState != LiveStreamingViewModel.UiState.Stopped) Button(onClick = onBack) { Text("Voltar") }
             }
         }
 
@@ -70,6 +104,18 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
                     color = if (b.type == LiveStreamingViewModel.Balloon.Type.Error) Color(0xFFB00020) else Color(0xFF2E7D32),
                     onDismiss = { vm.consumeBalloon() }
                 )
+            }
+        }
+
+        // Player overlay after successful save
+        val overlayFile by vm.showPlayerOverlay.collectAsState()
+        AnimatedVisibility(
+            visible = overlayFile != null,
+            enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(350)),
+            exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(350))
+        ) {
+            overlayFile?.let { f ->
+                PlayerOverlay(filePath = f.absolutePath, onDismiss = { vm.dismissPlayerOverlay() })
             }
         }
     }
@@ -119,5 +165,70 @@ private fun TopBalloon(message: String, color: Color, onDismiss: () -> Unit) {
     LaunchedEffect(message) {
         kotlinx.coroutines.delay(2500)
         onDismiss()
+    }
+}
+
+@Composable
+private fun PlayerOverlay(filePath: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val mediaPlayer = androidx.compose.runtime.remember {
+        android.media.MediaPlayer().apply {
+            try {
+                setDataSource(filePath)
+                prepare()
+            } catch (_: Throwable) {}
+        }
+    }
+    var isPlaying by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var progressMs by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+    val duration = try { mediaPlayer.duration } catch (_: Throwable) { 0 }
+
+    // Progress updater
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
+            try { progressMs = mediaPlayer.currentPosition } catch (_: Throwable) {}
+            kotlinx.coroutines.delay(200)
+        }
+    }
+    // Auto dismiss after a few seconds
+    LaunchedEffect(filePath) {
+        kotlinx.coroutines.delay(6000)
+        onDismiss()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF1E1E1E))
+                .padding(16.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Saved recording", color = Color.White)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = {
+                            try {
+                                if (isPlaying) { mediaPlayer.pause(); isPlaying = false } else { mediaPlayer.start(); isPlaying = true }
+                            } catch (_: Throwable) {}
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                    ) { Text(if (isPlaying) "Pause" else "Play", color = Color.White) }
+                    Text("${progressMs/1000}s / ${duration/1000}s", color = Color(0xFFEEEEEE))
+                }
+            }
+        }
+    }
+    // Cleanup
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            try { mediaPlayer.release() } catch (_: Throwable) {}
+        }
     }
 }

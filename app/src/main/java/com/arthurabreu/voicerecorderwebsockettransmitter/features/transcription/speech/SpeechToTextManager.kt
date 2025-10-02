@@ -128,7 +128,10 @@ class SpeechToTextManager(private val context: Context) : SpeechToTextService {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         putExtra(RecognizerIntent.EXTRA_LANGUAGE, lastLanguageTag) // last language chosen by ViewModel/UI
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true) // we want partial hypotheses as the user speaks
-        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1) // we only care about the best match
+        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3) // allow more candidates
+        // Encourage faster endpointing
+        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 500)
+        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) { // If sdk < 24
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false) // prefer online for better accuracy
         }
@@ -183,5 +186,21 @@ class SpeechToTextManager(private val context: Context) : SpeechToTextService {
         SpeechRecognizer.ERROR_SERVER -> "Server error"
         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timeout"
         else -> "Unknown error ($code)"
+    }
+
+    // Simple partial stabilizer: preserve common confirmed prefix and prefer longer hypothesis
+    private fun stabilizePartial(prev: String, new: String): String {
+        if (prev.isBlank()) return new
+        if (new.startsWith(prev)) return new
+        if (prev.startsWith(new)) return prev
+        val prevTokens = prev.trim().split(" ").filter { it.isNotBlank() }
+        val newTokens = new.trim().split(" ").filter { it.isNotBlank() }
+        val minSize = minOf(prevTokens.size, newTokens.size)
+        var i = 0
+        while (i < minSize && prevTokens[i].equals(newTokens[i], ignoreCase = true)) i++
+        if (i == 0) return if (new.length >= prev.length) new else prev
+        val commonPrefix = prevTokens.take(i).joinToString(" ")
+        val tail = newTokens.drop(i).joinToString(" ")
+        return (listOf(commonPrefix, tail).filter { it.isNotBlank() }.joinToString(" ")).trim()
     }
 }
