@@ -15,6 +15,9 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 class LiveStreamingViewModel : ViewModel() {
+    // Exposed list of saved recordings discovered on device (cache/files)
+    private val _savedItems = MutableStateFlow<List<File>>(emptyList())
+    val savedItems: StateFlow<List<File>> = _savedItems
     enum class UiState { Idle, Streaming, Stopped, Saving, Saved }
     data class Balloon(val message: String, val type: Type) {
         enum class Type { Success, Error }
@@ -131,6 +134,17 @@ class LiveStreamingViewModel : ViewModel() {
             showBalloon("Saved recording", Balloon.Type.Success)
             // Show player overlay
             _showPlayerOverlay.value = tempFile
+            // Add to saved items list
+            tempFile?.let { f ->
+                if (f.exists()) {
+                    val current = _savedItems.value.toMutableList()
+                    // avoid duplicates
+                    if (current.none { it.absolutePath == f.absolutePath }) {
+                        current.add(0, f)
+                        _savedItems.value = current.sortedByDescending { it.lastModified() }
+                    }
+                }
+            }
         } catch (t: Throwable) {
             showBalloon("Save failed: ${t.message}", Balloon.Type.Error)
             _uiState.value = UiState.Stopped
@@ -195,4 +209,35 @@ class LiveStreamingViewModel : ViewModel() {
     fun consumeBalloon() { _balloon.value = null }
 
     fun dismissPlayerOverlay() { _showPlayerOverlay.value = null }
+
+    // Refresh saved items by scanning given directories for audio files (.wav, .m4a)
+    fun refreshSaved(vararg dirs: File) {
+        val found = mutableListOf<File>()
+        dirs.forEach { dir ->
+            dir.listFiles()?.forEach { f ->
+                val name = f.name.lowercase()
+                if (f.isFile && (name.endsWith(".wav") || name.endsWith(".m4a"))) {
+                    found.add(f)
+                }
+            }
+        }
+        _savedItems.value = found.distinctBy { it.absolutePath }.sortedByDescending { it.lastModified() }
+    }
+
+    // Delete a saved recording from disk and update list
+    fun deleteFile(file: File) {
+        val ok = try { file.delete() } catch (_: Throwable) { false }
+        if (ok) {
+            _savedItems.value = _savedItems.value.filterNot { it.absolutePath == file.absolutePath }
+            showBalloon("Deleted", Balloon.Type.Success)
+        } else {
+            showBalloon("Failed to delete", Balloon.Type.Error)
+        }
+    }
+
+    // Show the mini player overlay for a given file
+    fun preview(file: File) {
+        _showPlayerOverlay.value = file
+    }
+
 }

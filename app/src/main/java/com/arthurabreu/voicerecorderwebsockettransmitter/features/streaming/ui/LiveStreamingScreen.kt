@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.presentation.LiveStreamingViewModel
+import java.io.File
 
 @Composable
 fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
@@ -57,7 +60,10 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
 
             val uiState by vm.uiState.collectAsState()
             val context = LocalContext.current
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
+            ) {
                 AnimatedContent(targetState = uiState, label = "startStopSave") { st ->
                     when (st) {
                         LiveStreamingViewModel.UiState.Streaming -> {
@@ -89,6 +95,19 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
                 }
 
                 if (onBack != null && uiState != LiveStreamingViewModel.UiState.Stopped) Button(onClick = onBack) { Text("Voltar") }
+            }
+            // Saved recordings list
+            val saved by vm.savedItems.collectAsState()
+            LaunchedEffect(Unit) {
+                // Load any existing files (from before) into the list
+                vm.refreshSaved(context.cacheDir, context.filesDir)
+            }
+            AnimatedVisibility(visible = saved.isNotEmpty()) {
+                SavedRecordingsList(
+                    items = saved,
+                    onPlay = { vm.preview(it) },
+                    onDelete = { vm.deleteFile(it) }
+                )
             }
         }
 
@@ -141,6 +160,53 @@ private fun Waveform(levels: List<Float>, barCount: Int, barWidth: Dp, barGap: D
                     .height(h)
                     .background(Color(0xFF64B5F6), RoundedCornerShape(4.dp))
             )
+        }
+    }
+}
+
+@Composable
+private fun SavedRecordingsList(
+    items: List<File>,
+    onPlay: (File) -> Unit,
+    onDelete: (File) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF0F0F0F))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Saved recordings", style = MaterialTheme.typography.titleMedium, color = Color.White)
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().height(200.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(items, key = { it.absolutePath }) { file ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1C1C1C))
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(file.name, color = Color(0xFFEEEEEE))
+                        Text("${file.length()/1024} KB", color = Color(0xFFAAAAAA))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = { onPlay(file) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) {
+                            Text("Play", color = Color.White)
+                        }
+                        Button(onClick = { onDelete(file) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020))) {
+                            Text("Delete", color = Color.White)
+                        }
+                    }
+                }
+            }
         }
     }
 }
