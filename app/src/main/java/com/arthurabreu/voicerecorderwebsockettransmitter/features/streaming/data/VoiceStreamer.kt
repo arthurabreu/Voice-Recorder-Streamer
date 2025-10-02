@@ -14,6 +14,31 @@ class VoiceStreamer(
 ) {
     private var recorder: android.media.AudioRecord? = null
     private var streamingJob: Job? = null
+    private var onLevel: ((Float) -> Unit)? = null
+
+    fun setOnLevelListener(listener: ((Float) -> Unit)?) {
+        onLevel = listener
+    }
+
+    private fun computeLevel(bytes: ByteArray, length: Int): Float {
+        // Compute RMS level from 16-bit PCM little-endian, normalize approximately to 0..1
+        var sum = 0.0
+        var count = 0
+        var i = 0
+        while (i + 1 < length) {
+            val lo = bytes[i].toInt() and 0xFF
+            val hi = bytes[i + 1].toInt()
+            val sample = (hi shl 8) or lo
+            val s = if (sample > 32767) sample - 65536 else sample
+            sum += (s * s).toDouble()
+            count++
+            i += 2
+        }
+        val rms = if (count > 0) Math.sqrt(sum / count) else 0.0
+        // normalize RMS roughly: 0..(max ~ 32767)
+        val norm = (rms / 32768.0).coerceIn(0.0, 1.0)
+        return norm.toFloat()
+    }
 
     fun startStreaming(language: String = "pt-BR") {
         if (streamingJob != null) return
@@ -36,6 +61,7 @@ class VoiceStreamer(
                     while (isActive && running) {
                         val read = recorder?.read(buf, 0, buf.size) ?: -1
                         if (read > 0) {
+                            onLevel?.invoke(computeLevel(buf, read))
                             if (!ws.sendBinary(if (read == buf.size) buf else buf.copyOf(read))) {
                                 running = false
                             }
