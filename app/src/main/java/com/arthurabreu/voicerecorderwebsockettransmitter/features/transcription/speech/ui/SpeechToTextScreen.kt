@@ -1,7 +1,8 @@
-package com.arthurabreu.voicerecorderwebsockettransmitter.speech.ui
+package com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -10,16 +11,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.presentation.SpeechToTextViewModel
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.presentation.SpeechToTextViewModel
 import org.koin.androidx.compose.koinViewModel
+import java.util.Locale
 
 @Composable
 fun SpeechToTextScreen(
@@ -43,14 +49,14 @@ fun SpeechToTextScreen(
                     LanguageOption("Español", "es-ES"),
                     LanguageOption("English", "en-US")
                 )
-                val defaultTag = java.util.Locale.getDefault().toLanguageTag()
+                val defaultTag = Locale.getDefault().toLanguageTag()
                 val defaultOption = options.firstOrNull { opt ->
                     // match by language code prefix (pt, es, en)
                     defaultTag.startsWith(opt.tag.substring(0, 2), ignoreCase = true)
                 } ?: options.last()
-                val selectedState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(defaultOption) }
+                val selectedState = remember { mutableStateOf(defaultOption) }
 
-                androidx.compose.foundation.layout.Row(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -156,17 +162,17 @@ private fun LanguageSelectorButton(
     onSelected: (LanguageOption) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val expanded = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val expanded = remember { mutableStateOf(false) }
     Column(modifier = modifier) {
         Button(onClick = { expanded.value = true }, modifier = Modifier.fillMaxWidth()) {
             Text(selected.label)
         }
-        androidx.compose.material3.DropdownMenu(
+        DropdownMenu(
             expanded = expanded.value,
             onDismissRequest = { expanded.value = false }
         ) {
             options.forEach { option ->
-                androidx.compose.material3.DropdownMenuItem(
+                DropdownMenuItem(
                     text = { Text(option.label) },
                     onClick = {
                         onSelected(option)

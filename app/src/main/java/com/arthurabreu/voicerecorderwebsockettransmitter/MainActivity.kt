@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.ui.SpeechToTextScreen
+import com.arthurabreu.voicerecorderwebsockettransmitter.ui.HomeScreen
 import com.arthurabreu.voicerecorderwebsockettransmitter.ui.theme.VoiceRecorderWebSocketTransmitterTheme
 
 class MainActivity : ComponentActivity() {
@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
             VoiceRecorderWebSocketTransmitterTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Surface(Modifier.fillMaxSize().padding(innerPadding)) {
-                        SpeechToTextScreen()
+                        HomeScreen()
                     }
                 }
             }

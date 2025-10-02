@@ -1,4 +1,4 @@
-package com.arthurabreu.voicerecorderwebsockettransmitter.speech
+package com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech
 
 import android.content.Context
 import android.content.Intent
@@ -8,9 +8,10 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.annotation.MainThread
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.domain.SpeechToTextService
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.domain.SpeechToTextService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.util.Locale
 
 /**
  * Clean, minimal manager around Android SpeechRecognizer API.
@@ -45,7 +46,7 @@ class SpeechToTextManager(private val context: Context) : SpeechToTextService {
 
     // Control flags
     private var shouldContinue = false // when true, we auto-restart sessions to simulate continuous dictation
-    private var lastLanguageTag: String = java.util.Locale.getDefault().toLanguageTag()
+    private var lastLanguageTag: String = Locale.getDefault().toLanguageTag()
 
     // Public immutable state (exposed via the SpeechToTextService interface)
     // We keep MutableStateFlow internally and expose read-only StateFlow to callers.
