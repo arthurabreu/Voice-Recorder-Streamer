@@ -9,17 +9,17 @@ import okio.ByteString
 class VoiceWsClient(
     private val url: String,
     private val authTokenProvider: suspend () -> String
-) {
+) : VoiceSocket {
     private val client = OkHttpClient()
     private var webSocket: WebSocket? = null
 
-    fun connect(
+    override fun connect(
         scope: CoroutineScope,
-        onOpen: () -> Unit = {},
-        onMessage: (String) -> Unit = {},
-        onBinary: (ByteArray) -> Unit = {},
-        onClosed: (code: Int, reason: String) -> Unit = { _, _ -> },
-        onFailure: (Throwable) -> Unit = {}
+        onOpen: () -> Unit,
+        onMessage: (String) -> Unit,
+        onBinary: (ByteArray) -> Unit,
+        onClosed: (code: Int, reason: String) -> Unit,
+        onFailure: (Throwable) -> Unit
     ) {
         scope.launch(Dispatchers.IO) {
             try {
@@ -43,7 +43,7 @@ class VoiceWsClient(
         }
     }
 
-    fun sendText(json: String): Boolean = webSocket?.send(json) == true
-    fun sendBinary(bytes: ByteArray): Boolean = webSocket?.send(ByteString.of(*bytes)) == true
-    fun close(code: Int = 1000, reason: String = "") { webSocket?.close(code, reason) }
+    override fun sendText(json: String): Boolean = webSocket?.send(json) == true
+    override fun sendBinary(bytes: ByteArray): Boolean = webSocket?.send(ByteString.of(*bytes)) == true
+    override fun close(code: Int, reason: String) { webSocket?.close(code, reason) }
 }

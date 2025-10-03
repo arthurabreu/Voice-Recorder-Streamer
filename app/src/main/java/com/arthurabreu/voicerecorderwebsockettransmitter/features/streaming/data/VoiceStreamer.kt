@@ -10,7 +10,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 class VoiceStreamer(
-    private val ws: VoiceWsClient,
+    private val ws: VoiceSocket,
     private val ioScope: CoroutineScope
 ) {
     private var recorder: android.media.AudioRecord? = null
@@ -61,52 +61,52 @@ class VoiceStreamer(
     fun startStreaming(language: String = "pt-BR") {
         if (streamingJob != null) return
 
-        ws.connect(
-            scope = ioScope,
-            onOpen = {
-                val start = """
-                {"type":"start","sessionId":"${java.util.UUID.randomUUID()}",
-                 "audio":{"encoding":"LINEAR16","sampleRate":${AudioCaptureConfig.SAMPLE_RATE},"channels":1},
-                 "language":"$language"}
-                """.trimIndent()
-                ws.sendText(start)
+        // Send a start message immediately; caller should invoke this only once the WS is open
+        val start = """
+        {"type":"start","sessionId":"${java.util.UUID.randomUUID()}",
+         "audio":{"encoding":"LINEAR16","sampleRate":${AudioCaptureConfig.SAMPLE_RATE},"channels":1},
+         "language":"$language"}
+        """.trimIndent()
+        ws.sendText(start)
 
-                recorder = createAudioRecord().also {
-                    try {
-                        val sessionId = it.audioSessionId
-                        if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
-                            try { android.media.audiofx.NoiseSuppressor.create(sessionId) } catch (_: Throwable) {}
-                        }
-                        if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
-                            try { android.media.audiofx.AutomaticGainControl.create(sessionId) } catch (_: Throwable) {}
-                        }
-                        it.startRecording()
-                    } catch (_: SecurityException) { /* permission handled by UI */ }
+        recorder = createAudioRecord().also {
+            try {
+                val sessionId = it.audioSessionId
+                if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                    try { android.media.audiofx.NoiseSuppressor.create(sessionId) } catch (_: Throwable) {}
                 }
+                if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
+                    try { android.media.audiofx.AutomaticGainControl.create(sessionId) } catch (_: Throwable) {}
+                }
+                it.startRecording()
+            } catch (_: SecurityException) { /* permission handled by UI */ }
+        }
 
-                streamingJob = ioScope.launch(Dispatchers.IO) {
-                    val buf = ByteArray(AudioCaptureConfig.FRAME_BYTES_20MS)
-                    var running = true
-                    while (isActive && running) {
-                        val read = recorder?.read(buf, 0, buf.size) ?: -1
-                        if (read > 0) {
-                            onLevel?.invoke(computeLevel(buf, read))
-                            val frame = if (read == buf.size) buf else buf.copyOf(read)
-                            // Send over WS
-                            if (!ws.sendBinary(frame)) {
-                                running = false
-                            }
-                            // Optionally record to WAV
-                            wavWriter?.write(frame)
-                        } else if (read == android.media.AudioRecord.ERROR_INVALID_OPERATION || read == android.media.AudioRecord.ERROR_BAD_VALUE) {
+        streamingJob = ioScope.launch(Dispatchers.IO) {
+            val buf = ByteArray(AudioCaptureConfig.FRAME_BYTES_20MS)
+            try {
+                var running = true
+                while (isActive && running) {
+                    val read = recorder?.read(buf, 0, buf.size) ?: -1
+                    if (read > 0) {
+                        onLevel?.invoke(computeLevel(buf, read))
+                        val frame = if (read == buf.size) buf else buf.copyOf(read)
+                        // Send over WS
+                        if (!ws.sendBinary(frame)) {
                             running = false
                         }
+                        // Optionally record to WAV
+                        wavWriter?.write(frame)
+                    } else if (read == android.media.AudioRecord.ERROR_INVALID_OPERATION || read == android.media.AudioRecord.ERROR_BAD_VALUE) {
+                        running = false
                     }
                 }
-            },
-            onFailure = { _ -> stopStreaming() },
-            onClosed = { _, _ -> stopStreaming() }
-        )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Normal path when stopping streaming; suppress noisy cancellation logs
+            } catch (_: Throwable) {
+                // Swallow other exceptions to avoid crashing UI; connection callbacks will handle failures
+            }
+        }
     }
 
     fun stopStreaming() {

@@ -2,17 +2,13 @@ package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.pre
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.PcmWavWriter
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.FakeVoiceWsClient
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceSocket
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceStreamer
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceWsClient
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import java.io.File
-import kotlin.math.PI
-import kotlin.math.sin
 
 class LiveStreamingViewModel : ViewModel() {
     // Exposed list of saved recordings discovered on device (cache/files)
@@ -44,65 +40,77 @@ class LiveStreamingViewModel : ViewModel() {
     private val _showPlayerOverlay = MutableStateFlow<File?>(null)
     val showPlayerOverlay: StateFlow<File?> = _showPlayerOverlay
 
-    // Emulation flag: set to true to simulate streaming without a real server
-    private val emulate = false
-    private var emulateJob: Job? = null
+    // Emulation toggle and WS config
+    private var emulate: Boolean = true
+    private var wsUrl: String = "wss://example.com/adk/voice"
+    private var tokenProvider: suspend () -> String = { "" }
 
-    // Recording helpers
-    private var tempFile: File? = null
-    private var emuWriter: PcmWavWriter? = null
-    private var emuPhase: Double = 0.0
+    private var wsClient: VoiceSocket = if (emulate) FakeVoiceWsClient() else VoiceWsClient(wsUrl, tokenProvider)
 
-    // TODO: Replace with your ADK endpoint and token provider when not emulating
-    private val wsClient = VoiceWsClient(
-        url = "wss://example.com/adk/voice",
-        authTokenProvider = { "" } // Plug your token provider here
-    )
-
-    private val streamer = VoiceStreamer(wsClient, viewModelScope).apply {
+    private var streamer: VoiceStreamer = VoiceStreamer(wsClient, viewModelScope).apply {
         setOnLevelListener { level -> pushLevel(level) }
     }
+
+    // Track whether the user initiated a stop, so we don't reset UI to Idle on normal close
+    private var isStopping: Boolean = false
+
+    // Recording helper
+    private var tempFile: File? = null
+
+    fun setEmulationMode(enabled: Boolean) {
+        emulate = enabled
+        wsClient.close()
+        wsClient = if (emulate) FakeVoiceWsClient() else VoiceWsClient(wsUrl, tokenProvider)
+        streamer = VoiceStreamer(wsClient, viewModelScope).apply {
+            setOnLevelListener { level -> pushLevel(level) }
+        }
+    }
+
+    fun setWebSocketUrl(url: String) { wsUrl = url }
+    fun setTokenProvider(provider: suspend () -> String) { tokenProvider = provider }
 
     fun start(language: String = "pt-BR", outputDir: File) {
         // Prepare temp file
         tempFile = File(outputDir, "stream_${System.currentTimeMillis()}.wav")
         _savedFile.value = null
-        if (emulate) {
-            startEmulationRecording()
-            return
-        }
-        _status.value = "Connecting..."
+
+        _status.value = if (emulate) "Streaming (fake WS)" else "Connecting..."
         _uiState.value = UiState.Streaming
+
         wsClient.connect(
             scope = viewModelScope,
             onOpen = {
                 _status.value = "Streaming"
                 showBalloon("Streaming started", Balloon.Type.Success)
+                tempFile?.let { streamer.startRecordingTo(it) }
+                streamer.startStreaming(language)
             },
             onMessage = { msg -> _lastServerMessage.value = msg },
             onFailure = { t ->
                 _status.value = "Error: ${t.message}"
-                _uiState.value = UiState.Idle
-                showBalloon("Error: ${t.message}", Balloon.Type.Error)
+                if (isStopping) {
+                    // If we are stopping, do not override the Stopped state; swallow failure
+                    isStopping = false
+                } else {
+                    _uiState.value = UiState.Idle
+                    showBalloon("Error: ${t.message}", Balloon.Type.Error)
+                }
             },
             onClosed = { _, reason ->
                 _status.value = "Closed"
-                _uiState.value = UiState.Idle
-                showBalloon("Closed: $reason", Balloon.Type.Error)
+                if (isStopping) {
+                    // We initiated the stop; keep UI in Stopped state so Save/Cancel are visible
+                    isStopping = false
+                } else {
+                    _uiState.value = UiState.Idle
+                    showBalloon("Closed: $reason", Balloon.Type.Error)
+                }
             }
         )
-        tempFile?.let { streamer.startRecordingTo(it) }
-        streamer.startStreaming(language)
     }
 
     fun stop() {
-        if (emulate) {
-            emulateJob?.cancel()
-            emulateJob = null
-            _status.value = "Stopped"
-            _uiState.value = UiState.Stopped
-            return
-        }
+        isStopping = true
         streamer.stopStreaming()
         _status.value = "Stopped"
         _uiState.value = UiState.Stopped
@@ -110,8 +118,6 @@ class LiveStreamingViewModel : ViewModel() {
 
     fun cancel() {
         // Discard recording and reset
-        try { emuWriter?.close() } catch (_: Throwable) {}
-        emuWriter = null
         tempFile?.delete()
         tempFile = null
         _savedFile.value = null
@@ -123,12 +129,7 @@ class LiveStreamingViewModel : ViewModel() {
     fun save() {
         _uiState.value = UiState.Saving
         try {
-            if (emulate) {
-                emuWriter?.close()
-                emuWriter = null
-            } else {
-                streamer.stopRecording()
-            }
+            streamer.stopRecording()
             _savedFile.value = tempFile
             _uiState.value = UiState.Saved
             showBalloon("Saved recording", Balloon.Type.Success)
@@ -157,49 +158,6 @@ class LiveStreamingViewModel : ViewModel() {
         val max = 60
         if (list.size > max) repeat(list.size - max) { list.removeAt(0) }
         _levels.value = list
-    }
-
-    private fun startEmulationRecording() {
-        if (emulateJob != null) return
-        _status.value = "Streaming (emulated)"
-        _uiState.value = UiState.Streaming
-        _lastServerMessage.value = ""
-        showBalloon("Streaming started (emulated)", Balloon.Type.Success)
-        // Open WAV writer
-        tempFile?.let {
-            val w = PcmWavWriter(16000, 1)
-            w.open(it)
-            emuWriter = w
-        }
-        emulateJob = viewModelScope.launch {
-            var t = 0.0
-            var sent = 0
-            val sampleRate = 16000
-            val frameSamples = 640 // ~40ms
-            val buf = ShortArray(frameSamples)
-            while (true) {
-                // Generate a smooth sine wave with slight noise
-                val level = (0.5 + 0.5 * sin(2 * PI * 0.8 * t)).toFloat()
-                val noisy = (level + (Math.random().toFloat() - 0.5f) * 0.2f).coerceIn(0f, 1f)
-                pushLevel(noisy)
-                // Synthesize audio matching the level
-                val amp = (noisy.toDouble() * 0.6 + 0.2).coerceIn(0.0, 1.0)
-                val freq = 440.0
-                for (i in 0 until frameSamples) {
-                    val sample = kotlin.math.sin(2 * PI * freq * (emuPhase / sampleRate))
-                    val s = (sample * amp * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-                    buf[i] = s.toShort()
-                    emuPhase += 1
-                }
-                emuWriter?.write(buf)
-                if (sent % 15 == 0) {
-                    _lastServerMessage.value = "emulated bytes sent: ${sent * 1280}"
-                }
-                sent++
-                t += 1.0 / 30.0
-                delay(33)
-            }
-        }
     }
 
     fun showBalloon(message: String, type: Balloon.Type) {
@@ -239,5 +197,4 @@ class LiveStreamingViewModel : ViewModel() {
     fun preview(file: File) {
         _showPlayerOverlay.value = file
     }
-
 }
