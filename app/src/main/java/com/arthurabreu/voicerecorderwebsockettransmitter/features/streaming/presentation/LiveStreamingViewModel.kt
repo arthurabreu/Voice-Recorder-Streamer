@@ -45,7 +45,7 @@ class LiveStreamingViewModel : ViewModel() {
     val showPlayerOverlay: StateFlow<File?> = _showPlayerOverlay
 
     // Emulation flag: set to true to simulate streaming without a real server
-    private val emulate = true
+    private val emulate = false
     private var emulateJob: Job? = null
 
     // Recording helpers

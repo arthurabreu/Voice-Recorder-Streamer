@@ -139,7 +139,9 @@ class SpeechToTextManager(private val context: Context) : SpeechToTextService {
 
     private fun restartListening() {
         val recognizer = speechRecognizer ?: return
-        // Keep the flag and isListening as true and restart the session
+        if (!shouldContinue) return
+        // Cancel any pending session before starting a new one to avoid multiple mic activations
+        try { recognizer.cancel() } catch (_: Throwable) {}
         _isListening.value = true
         recognizer.startListening(buildIntent())
     }

@@ -22,7 +22,7 @@ fun createAudioRecord(): AudioRecord {
     )
     val bufferSize = (minBuf * 2).coerceAtLeast(3200)
     return AudioRecord(
-        MediaRecorder.AudioSource.VOICE_RECOGNITION,
+        MediaRecorder.AudioSource.MIC,
         AudioCaptureConfig.SAMPLE_RATE,
         AudioCaptureConfig.CHANNEL_CONFIG,
         AudioCaptureConfig.AUDIO_FORMAT,
