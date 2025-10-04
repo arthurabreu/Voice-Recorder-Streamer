@@ -23,9 +23,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -229,15 +233,14 @@ private fun TopBalloon(message: String, color: Color, onDismiss: () -> Unit) {
     }
     // Auto dismiss after a short delay
     LaunchedEffect(message) {
-        kotlinx.coroutines.delay(2500)
+        kotlinx.coroutines.delay(1500)
         onDismiss()
     }
 }
 
 @Composable
 private fun PlayerOverlay(filePath: String, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    val mediaPlayer = androidx.compose.runtime.remember {
+    val mediaPlayer =remember {
         android.media.MediaPlayer().apply {
             try {
                 setDataSource(filePath)
@@ -245,8 +248,8 @@ private fun PlayerOverlay(filePath: String, onDismiss: () -> Unit) {
             } catch (_: Throwable) {}
         }
     }
-    var isPlaying by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    var progressMs by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+    var isPlaying by remember {mutableStateOf(false) }
+    var progressMs by remember { mutableIntStateOf(0) }
     val duration = try { mediaPlayer.duration } catch (_: Throwable) { 0 }
 
     // Progress updater
@@ -292,7 +295,7 @@ private fun PlayerOverlay(filePath: String, onDismiss: () -> Unit) {
         }
     }
     // Cleanup
-    androidx.compose.runtime.DisposableEffect(Unit) {
+   DisposableEffect(Unit) {
         onDispose {
             try { mediaPlayer.release() } catch (_: Throwable) {}
         }

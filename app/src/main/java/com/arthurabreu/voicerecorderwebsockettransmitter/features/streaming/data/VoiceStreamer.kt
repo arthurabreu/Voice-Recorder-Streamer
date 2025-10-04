@@ -1,5 +1,9 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data
 
+import android.annotation.SuppressLint
+import android.media.AudioRecord
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.AudioCaptureConfig
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.createAudioRecord
 import kotlinx.coroutines.CoroutineScope
@@ -8,12 +12,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.sqrt
 
 class VoiceStreamer(
     private val ws: VoiceSocket,
     private val ioScope: CoroutineScope
 ) {
-    private var recorder: android.media.AudioRecord? = null
+    private var recorder: AudioRecord? = null
     private var streamingJob: Job? = null
     private var onLevel: ((Float) -> Unit)? = null
     private var wavWriter: PcmWavWriter? = null
@@ -52,12 +57,13 @@ class VoiceStreamer(
             count++
             i += 2
         }
-        val rms = if (count > 0) Math.sqrt(sum / count) else 0.0
+        val rms = if (count > 0) sqrt(sum / count) else 0.0
         // normalize RMS roughly: 0..(max ~ 32767)
         val norm = (rms / 32768.0).coerceIn(0.0, 1.0)
         return norm.toFloat()
     }
 
+    @SuppressLint("MissingPermission")
     fun startStreaming(language: String = "pt-BR") {
         if (streamingJob != null) return
 
@@ -72,11 +78,11 @@ class VoiceStreamer(
         recorder = createAudioRecord().also {
             try {
                 val sessionId = it.audioSessionId
-                if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
-                    try { android.media.audiofx.NoiseSuppressor.create(sessionId) } catch (_: Throwable) {}
+                if (NoiseSuppressor.isAvailable()) {
+                    try { NoiseSuppressor.create(sessionId) } catch (_: Throwable) {}
                 }
-                if (android.media.audiofx.AutomaticGainControl.isAvailable()) {
-                    try { android.media.audiofx.AutomaticGainControl.create(sessionId) } catch (_: Throwable) {}
+                if (AutomaticGainControl.isAvailable()) {
+                    try { AutomaticGainControl.create(sessionId) } catch (_: Throwable) {}
                 }
                 it.startRecording()
             } catch (_: SecurityException) { /* permission handled by UI */ }
@@ -97,7 +103,7 @@ class VoiceStreamer(
                         }
                         // Optionally record to WAV
                         wavWriter?.write(frame)
-                    } else if (read == android.media.AudioRecord.ERROR_INVALID_OPERATION || read == android.media.AudioRecord.ERROR_BAD_VALUE) {
+                    } else if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_BAD_VALUE) {
                         running = false
                     }
                 }
