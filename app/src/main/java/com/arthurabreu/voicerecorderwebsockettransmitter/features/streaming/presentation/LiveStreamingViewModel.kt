@@ -42,8 +42,8 @@ class LiveStreamingViewModel : ViewModel() {
 
     // Emulation toggle and WS config
     private var emulate: Boolean = false
-    private var wsUrl: String = "wss://example.com/adk/voice"
-//    private var wsUrl: String = "ws://192.168.18.18:8080"
+//    private var wsUrl: String = "wss://example.com/adk/voice"
+    private var wsUrl: String = "ws://192.168.18.18:8080"
     private var tokenProvider: suspend () -> String = { "" }
 
     private var wsClient: VoiceSocket = if (emulate) FakeVoiceWsClient() else VoiceWsClient(wsUrl, tokenProvider)
