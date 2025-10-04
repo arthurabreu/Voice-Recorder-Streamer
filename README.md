@@ -41,6 +41,18 @@ Inspired by the documentation style of AllThingsAndroid.
 ---
 
 ## Screens
+
+> These are illustrative mock screenshots rendered as SVGs (no device/emulator required). They reflect the structure and intent of the UI without collecting any real user data.
+
+<p align="center">
+  <img src="docs/images/home.svg" alt="Home screen (illustrative)" width="600" />
+</p>
+<p align="center">
+  <img src="docs/images/live_streaming.svg" alt="Live Streaming screen (illustrative)" width="600" />
+</p>
+<p align="center">
+  <img src="docs/images/save_and_send.svg" alt="Save & Send screen (illustrative)" width="600" />
+</p>
 - Home: access to Live Streaming and Save & Send flows
 - Live Streaming: start/stop streaming to a WebSocket endpoint, shows last server message and input levels; optional local WAV capture
 - Save & Send: record to a file and send the file over WebSocket
