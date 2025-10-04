@@ -41,8 +41,9 @@ class LiveStreamingViewModel : ViewModel() {
     val showPlayerOverlay: StateFlow<File?> = _showPlayerOverlay
 
     // Emulation toggle and WS config
-    private var emulate: Boolean = true
+    private var emulate: Boolean = false
     private var wsUrl: String = "wss://example.com/adk/voice"
+//    private var wsUrl: String = "ws://192.168.18.18:8080"
     private var tokenProvider: suspend () -> String = { "" }
 
     private var wsClient: VoiceSocket = if (emulate) FakeVoiceWsClient() else VoiceWsClient(wsUrl, tokenProvider)
@@ -66,8 +67,23 @@ class LiveStreamingViewModel : ViewModel() {
         }
     }
 
-    fun setWebSocketUrl(url: String) { wsUrl = url }
-    fun setTokenProvider(provider: suspend () -> String) { tokenProvider = provider }
+    fun setWebSocketUrl(url: String) {
+        wsUrl = url
+        wsClient.close()
+        wsClient = if (emulate) FakeVoiceWsClient() else VoiceWsClient(wsUrl, tokenProvider)
+        streamer = VoiceStreamer(wsClient, viewModelScope).apply {
+            setOnLevelListener { level -> pushLevel(level) }
+        }
+    }
+
+    fun setTokenProvider(provider: suspend () -> String) {
+        tokenProvider = provider
+        wsClient.close()
+        wsClient = if (emulate) FakeVoiceWsClient() else VoiceWsClient(wsUrl, tokenProvider)
+        streamer = VoiceStreamer(wsClient, viewModelScope).apply {
+            setOnLevelListener { level -> pushLevel(level) }
+        }
+    }
 
     fun start(language: String = "pt-BR", outputDir: File) {
         // Prepare temp file
