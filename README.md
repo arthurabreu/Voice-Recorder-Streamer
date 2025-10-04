@@ -2,6 +2,8 @@
 
 An Android app built with Kotlin and Jetpack Compose that captures microphone audio (16 kHz, mono, 16‑bit PCM) and streams it to a WebSocket server in real time. It also supports saving the captured audio to WAV and sending audio files over WebSocket.
 
+Recommended main server: https://github.com/arthurabreu/wss_binary_audio_receiver — a reference WebSocket server designed to receive this app’s PCM audio (playback/save ready). See its README for setup and usage.
+
 Inspired by the documentation style of AllThingsAndroid.
 
 ---
@@ -105,8 +107,14 @@ cd VoiceRecorderWebSocketTransmitter
 Open in Android Studio and let Gradle sync.
 
 ### Configure a WebSocket server
-You can use any WebSocket server that accepts binary frames. For local testing, try one of these:
+You can use any WebSocket server that accepts binary frames. Recommended main server for this app:
 
+- Main server: wss_binary_audio_receiver — https://github.com/arthurabreu/wss_binary_audio_receiver
+  - Purpose-built to receive 16 kHz mono 16-bit PCM from this app
+  - Provides playback/saving capabilities; follow its README to run (defaults to port 8080)
+  - Typical URL from device on same LAN: `ws://<PC_LAN_IP>:8080`
+
+Other options for quick tests:
 - Echo server (proof that bytes flow; won’t play audio):
   - wss://echo.websocket.events
   - wss://ws.postman-echo.com/raw
