@@ -1,8 +1,8 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.di
 
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.SpeechToTextManager
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.domain.SpeechToTextService
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.presentation.SpeechToTextViewModel
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.SpeechToTextManager
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.domain.SpeechToTextService
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.presentation.SpeechToTextViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.bind

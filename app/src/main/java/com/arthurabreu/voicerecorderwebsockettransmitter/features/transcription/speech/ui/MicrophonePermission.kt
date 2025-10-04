@@ -1,4 +1,4 @@
-package com.arthurabreu.voicerecorderwebsockettransmitter.speech.ui
+package com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.ui
 
 import android.Manifest
 import android.content.pm.PackageManager

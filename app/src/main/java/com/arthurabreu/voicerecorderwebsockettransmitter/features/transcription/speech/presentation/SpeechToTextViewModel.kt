@@ -1,12 +1,13 @@
-package com.arthurabreu.voicerecorderwebsockettransmitter.speech.presentation
+package com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.arthurabreu.voicerecorderwebsockettransmitter.speech.domain.SpeechToTextService
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.speech.domain.SpeechToTextService
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import java.util.Locale
 
 /**
  * Aggregated UI state to simplify Compose collection.
@@ -52,7 +53,7 @@ class SpeechToTextViewModel(
         initialValue = SpeechUiState()
     )
 
-    fun onStart(languageTag: String = java.util.Locale.getDefault().toLanguageTag()) {
+    fun onStart(languageTag: String = Locale.getDefault().toLanguageTag()) {
         service.startListening(languageTag)
     }
 
