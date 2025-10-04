@@ -42,20 +42,10 @@ Inspired by the documentation style of AllThingsAndroid.
 
 ## Screens
 
-> These are illustrative mock screenshots rendered as SVGs (no device/emulator required). They reflect the structure and intent of the UI without collecting any real user data.
+## General Screens
 
-<p align="center">
-  <img src="docs/images/home.svg" alt="Home screen (illustrative)" width="600" />
-</p>
-<p align="center">
-  <img src="docs/images/live_streaming.svg" alt="Live Streaming screen (illustrative)" width="600" />
-</p>
-<p align="center">
-  <img src="docs/images/save_and_send.svg" alt="Save & Send screen (illustrative)" width="600" />
-</p>
-- Home: access to Live Streaming and Save & Send flows
-- Live Streaming: start/stop streaming to a WebSocket endpoint, shows last server message and input levels; optional local WAV capture
-- Save & Send: record to a file and send the file over WebSocket
+<img width="1080" height="2316" alt="Screenshot_20251004_133037" src="https://github.com/user-attachments/assets/a14e444d-c5f9-47f8-80c2-b2b8d943c23f" />
+<img width="1080" height="2316" alt="Screenshot_20251004_132910" src="https://github.com/user-attachments/assets/76c43255-aa50-491c-a6da-610e364ead05" />
 
 > Note: UI is built with Jetpack Compose (Material 3 theme).
 
