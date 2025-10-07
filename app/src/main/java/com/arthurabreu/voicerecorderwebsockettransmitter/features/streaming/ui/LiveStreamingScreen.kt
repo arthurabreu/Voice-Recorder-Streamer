@@ -38,17 +38,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.presentation.LiveStreamingViewModel
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.Balloon
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.UiState
+import org.koin.androidx.compose.koinViewModel
 import java.io.File
 
 @Composable
 fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
-    val vm: LiveStreamingViewModel = viewModel()
-    val status by vm.status.collectAsState()
-    val serverMsg by vm.lastServerMessage.collectAsState()
-    val levels by vm.levels.collectAsState()
-    val balloon by vm.balloon.collectAsState()
+    val vm: LiveStreamingViewModel = koinViewModel()
+    val state by vm.state.collectAsState()
+    val status = state.status
+    val serverMsg = state.lastServerMessage
+    val levels = state.levels
+    val balloon = state.balloon
+    val savedItems = state.savedItems
+    val overlayFile = state.showPlayerOverlay
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -62,7 +67,7 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
 
             Waveform(levels = levels, barCount = 48, barWidth = 6.dp, barGap = 2.dp)
 
-            val uiState by vm.uiState.collectAsState()
+            val uiState = state.uiState
             val context = LocalContext.current
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -70,13 +75,13 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
             ) {
                 AnimatedContent(targetState = uiState, label = "startStopSave") { st ->
                     when (st) {
-                        LiveStreamingViewModel.UiState.Streaming -> {
+                        UiState.Streaming -> {
                             Button(
                                 onClick = { vm.stop() },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB71C1C))
                             ) { Text("Stop Streaming", color = Color.White) }
                         }
-                        LiveStreamingViewModel.UiState.Stopped -> {
+                        UiState.Stopped -> {
                             Button(
                                 onClick = { vm.save() },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
@@ -91,24 +96,22 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
                     }
                 }
 
-                AnimatedVisibility(visible = uiState == LiveStreamingViewModel.UiState.Stopped) {
+                AnimatedVisibility(visible = uiState == UiState.Stopped) {
                     Button(
                         onClick = { vm.cancel() },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF424242))
                     ) { Text("Cancel", color = Color.White) }
                 }
 
-                if (onBack != null && uiState != LiveStreamingViewModel.UiState.Stopped) Button(onClick = onBack) { Text("Voltar") }
+                if (onBack != null && uiState != UiState.Stopped) Button(onClick = onBack) { Text("Voltar") }
             }
-            // Saved recordings list
-            val saved by vm.savedItems.collectAsState()
             LaunchedEffect(Unit) {
                 // Load any existing files (from before) into the list
                 vm.refreshSaved(context.cacheDir, context.filesDir)
             }
-            AnimatedVisibility(visible = saved.isNotEmpty()) {
+            AnimatedVisibility(visible = savedItems.isNotEmpty()) {
                 SavedRecordingsList(
-                    items = saved,
+                    items = savedItems,
                     onPlay = { vm.preview(it) },
                     onDelete = { vm.deleteFile(it) }
                 )
@@ -120,18 +123,16 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
             enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(300)),
             exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = tween(300))
         ) {
-            val b = balloon
-            if (b != null) {
+            if (balloon != null) {
                 TopBalloon(
-                    message = b.message,
-                    color = if (b.type == LiveStreamingViewModel.Balloon.Type.Error) Color(0xFFB00020) else Color(0xFF2E7D32),
+                    message = balloon.message,
+                    color = if (balloon.type == Balloon.Type.Error) Color(0xFFB00020) else Color(0xFF2E7D32),
                     onDismiss = { vm.consumeBalloon() }
                 )
             }
         }
 
         // Player overlay after successful save
-        val overlayFile by vm.showPlayerOverlay.collectAsState()
         AnimatedVisibility(
             visible = overlayFile != null,
             enter = slideInVertically(initialOffsetY = { -it }, animationSpec = tween(350)),

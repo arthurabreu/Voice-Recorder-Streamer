@@ -56,9 +56,15 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
 
-    // Coroutines + OkHttp for WebSocket/IO
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Coroutines
+    implementation(libs.kotlinx.coroutines.android)
+
+    // Ktor Client for WebSockets (use CIO engine for WebSocket support)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.websockets)
+
+    // OkHttp still present for legacy parts (can be removed later if unused)
+    implementation(libs.okhttp)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
