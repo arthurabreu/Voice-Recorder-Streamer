@@ -27,22 +27,23 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun PlayerOverlay(filePath: String, onDismiss: () -> Unit) {
-    val mediaPlayer = remember {
-        android.media.MediaPlayer().apply {
-            try {
+    val isPreview = androidx.compose.ui.platform.LocalInspectionMode.current
+    val mediaPlayer = remember(isPreview, filePath) {
+        if (isPreview) null else try {
+            android.media.MediaPlayer().apply {
                 setDataSource(filePath)
                 prepare()
-            } catch (_: Throwable) {}
-        }
+            }
+        } catch (_: Throwable) { null }
     }
     var isPlaying by remember { mutableStateOf(false) }
     var progressMs by remember { mutableIntStateOf(0) }
-    val duration = try { mediaPlayer.duration } catch (_: Throwable) { 0 }
+    val duration = try { mediaPlayer?.duration ?: 0 } catch (_: Throwable) { 0 }
 
     // Progress updater
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
-            try { progressMs = mediaPlayer.currentPosition } catch (_: Throwable) {}
+            try { progressMs = mediaPlayer?.currentPosition ?: 0 } catch (_: Throwable) {}
             kotlinx.coroutines.delay(200)
         }
     }
@@ -71,6 +72,7 @@ fun PlayerOverlay(filePath: String, onDismiss: () -> Unit) {
                     Button(
                         onClick = {
                             try {
+                                if (mediaPlayer == null) return@Button
                                 if (isPlaying) { mediaPlayer.pause(); isPlaying = false } else { mediaPlayer.start(); isPlaying = true }
                             } catch (_: Throwable) {}
                         },
@@ -84,7 +86,14 @@ fun PlayerOverlay(filePath: String, onDismiss: () -> Unit) {
     // Cleanup
     DisposableEffect(Unit) {
         onDispose {
-            try { mediaPlayer.release() } catch (_: Throwable) {}
+            try { mediaPlayer?.release() } catch (_: Throwable) {}
         }
     }
+}
+
+
+@androidx.compose.ui.tooling.preview.Preview(showBackground = true)
+@androidx.compose.runtime.Composable
+private fun PlayerOverlayPreview() {
+    PlayerOverlay(filePath = "", onDismiss = {})
 }

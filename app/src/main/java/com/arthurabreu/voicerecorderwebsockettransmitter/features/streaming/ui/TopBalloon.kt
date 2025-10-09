@@ -36,3 +36,16 @@ fun TopBalloon(message: String, color: Color, onDismiss: () -> Unit) {
         onDismiss()
     }
 }
+
+
+@androidx.compose.ui.tooling.preview.Preview(showBackground = true)
+@androidx.compose.runtime.Composable
+private fun TopBalloonSuccessPreview() {
+    TopBalloon(message = "Salvo com sucesso", color = androidx.compose.ui.graphics.Color(0xFF2E7D32), onDismiss = {})
+}
+
+@androidx.compose.ui.tooling.preview.Preview(showBackground = true)
+@androidx.compose.runtime.Composable
+private fun TopBalloonErrorPreview() {
+    TopBalloon(message = "Falha ao enviar", color = androidx.compose.ui.graphics.Color(0xFFB00020), onDismiss = {})
+}

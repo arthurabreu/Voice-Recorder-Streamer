@@ -68,3 +68,14 @@ fun SavedRecordingsList(
         }
     }
 }
+
+
+@androidx.compose.ui.tooling.preview.Preview(showBackground = true)
+@androidx.compose.runtime.Composable
+private fun SavedRecordingsListPreview() {
+    val items = listOf(
+        java.io.File("/cache/sample1.wav"),
+        java.io.File("/cache/sample2.wav")
+    )
+    SavedRecordingsList(items = items, onPlay = {}, onDelete = {})
+}

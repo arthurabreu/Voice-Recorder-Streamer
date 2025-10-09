@@ -23,7 +23,7 @@ fun Waveform(levels: List<Float>, barCount: Int, barWidth: Dp, barGap: Dp) {
         val src = if (levels.size >= barCount) levels.takeLast(barCount) else List(barCount - levels.size) { 0f } + levels
         src
     }
-    val maxHeight = 160.dp
+    val maxHeight = 120.dp
     Row(
         modifier = Modifier.fillMaxWidth().height(maxHeight).clip(RoundedCornerShape(12.dp)).background(Color(0xFF101010)).padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(barGap),
@@ -39,4 +39,12 @@ fun Waveform(levels: List<Float>, barCount: Int, barWidth: Dp, barGap: Dp) {
             )
         }
     }
+}
+
+
+@androidx.compose.ui.tooling.preview.Preview(showBackground = true)
+@androidx.compose.runtime.Composable
+private fun WaveformPreview() {
+    val levels = List(48) { i -> (kotlin.math.abs(kotlin.math.sin(i / 5f)) * 0.8f) }
+    Waveform(levels = levels, barCount = 48, barWidth = 6.dp, barGap = 2.dp)
 }
