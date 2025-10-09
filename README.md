@@ -43,6 +43,14 @@ Inspired by the documentation style of AllThingsAndroid.
 ## Screens
 
 ## General Screens
+<img width="523" height="1150" alt="streaming 1" src="https://github.com/user-attachments/assets/d8ae952f-f9e1-4f32-8109-12cdb5bd7df8" />
+<img width="985" height="372" alt="streaming 2" src="https://github.com/user-attachments/assets/0e27f41f-cf4a-47df-bd73-96a477d3c995" />
+<img width="1556" height="1055" alt="streaming 3" src="https://github.com/user-attachments/assets/61b19313-5614-4cbe-950b-34405713e017" />
+<img width="1562" height="537" alt="streaming 5" src="https://github.com/user-attachments/assets/9004aab4-e30b-450d-87f3-3dd1eab578fb" />
+<img width="1574" height="541" alt="streaming 4" src="https://github.com/user-attachments/assets/6238db52-f2bf-46ae-8404-dca141b172be" />
+
+
+
 
 <img width="1080" height="2316" alt="Screenshot_20251004_133037" src="https://github.com/user-attachments/assets/a14e444d-c5f9-47f8-80c2-b2b8d943c23f" />
 <img width="1080" height="2316" alt="Screenshot_20251004_132910" src="https://github.com/user-attachments/assets/76c43255-aa50-491c-a6da-610e364ead05" />
