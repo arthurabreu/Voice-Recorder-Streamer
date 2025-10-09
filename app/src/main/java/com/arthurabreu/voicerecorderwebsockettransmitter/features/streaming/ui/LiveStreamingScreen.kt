@@ -39,7 +39,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.presentation.LiveStreamingViewModel
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.Balloon
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.UiState
 import org.koin.androidx.compose.koinViewModel
 import java.io.File
@@ -126,7 +125,7 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
             if (balloon != null) {
                 TopBalloon(
                     message = balloon.message,
-                    color = if (balloon.type == Balloon.Type.Error) Color(0xFFB00020) else Color(0xFF2E7D32),
+                    color = if (balloon.type == com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.BalloonType.Error) Color(0xFFB00020) else Color(0xFF2E7D32),
                     onDismiss = { vm.consumeBalloon() }
                 )
             }
@@ -145,160 +144,3 @@ fun LiveStreamingScreen(onBack: (() -> Unit)? = null) {
     }
 }
 
-@Composable
-private fun Waveform(levels: List<Float>, barCount: Int, barWidth: Dp, barGap: Dp) {
-    val bars = if (levels.isEmpty()) List(barCount) { 0f } else {
-        val src = if (levels.size >= barCount) levels.takeLast(barCount) else List(barCount - levels.size) { 0f } + levels
-        src
-    }
-    val maxHeight = 120.dp
-    Row(
-        modifier = Modifier.fillMaxWidth().height(maxHeight).clip(RoundedCornerShape(12.dp)).background(Color(0xFF101010)).padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(barGap),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        bars.forEach { lvl ->
-            val h = (lvl.coerceIn(0f, 1f) * maxHeight.value).dp
-            Box(
-                modifier = Modifier
-                    .width(barWidth)
-                    .height(h)
-                    .background(Color(0xFF64B5F6), RoundedCornerShape(4.dp))
-            )
-        }
-    }
-}
-
-@Composable
-private fun SavedRecordingsList(
-    items: List<File>,
-    onPlay: (File) -> Unit,
-    onDelete: (File) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF0F0F0F))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text("Saved recordings", style = MaterialTheme.typography.titleMedium, color = Color.White)
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().height(200.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(items, key = { it.absolutePath }) { file ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1C1C1C))
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(file.name, color = Color(0xFFEEEEEE))
-                        Text("${file.length()/1024} KB", color = Color(0xFFAAAAAA))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = { onPlay(file) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) {
-                            Text("Play", color = Color.White)
-                        }
-                        Button(onClick = { onDelete(file) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020))) {
-                            Text("Delete", color = Color.White)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopBalloon(message: String, color: Color, onDismiss: () -> Unit) {
-    Box(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(color)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-            Text(message, color = Color.White)
-        }
-    }
-    // Auto dismiss after a short delay
-    LaunchedEffect(message) {
-        kotlinx.coroutines.delay(1500)
-        onDismiss()
-    }
-}
-
-@Composable
-private fun PlayerOverlay(filePath: String, onDismiss: () -> Unit) {
-    val mediaPlayer =remember {
-        android.media.MediaPlayer().apply {
-            try {
-                setDataSource(filePath)
-                prepare()
-            } catch (_: Throwable) {}
-        }
-    }
-    var isPlaying by remember {mutableStateOf(false) }
-    var progressMs by remember { mutableIntStateOf(0) }
-    val duration = try { mediaPlayer.duration } catch (_: Throwable) { 0 }
-
-    // Progress updater
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
-            try { progressMs = mediaPlayer.currentPosition } catch (_: Throwable) {}
-            kotlinx.coroutines.delay(200)
-        }
-    }
-    // Auto dismiss after a few seconds
-    LaunchedEffect(filePath) {
-        kotlinx.coroutines.delay(6000)
-        onDismiss()
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF1E1E1E))
-                .padding(16.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Saved recording", color = Color.White)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(
-                        onClick = {
-                            try {
-                                if (isPlaying) { mediaPlayer.pause(); isPlaying = false } else { mediaPlayer.start(); isPlaying = true }
-                            } catch (_: Throwable) {}
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-                    ) { Text(if (isPlaying) "Pause" else "Play", color = Color.White) }
-                    Text("${progressMs/1000}s / ${duration/1000}s", color = Color(0xFFEEEEEE))
-                }
-            }
-        }
-    }
-    // Cleanup
-   DisposableEffect(Unit) {
-        onDispose {
-            try { mediaPlayer.release() } catch (_: Throwable) {}
-        }
-    }
-}

@@ -5,10 +5,6 @@ package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.dom
  * This makes networking code independent from how the token is retrieved.
  */
 interface TokenProvider {
+    /** @return a valid token string or throws on failure. */
     suspend fun getToken(): String
-}
-
-/** Simple adapter around a suspend lambda to avoid breaking existing callers. */
-class LambdaTokenProvider(private val block: suspend () -> String) : TokenProvider {
-    override suspend fun getToken(): String = block()
 }

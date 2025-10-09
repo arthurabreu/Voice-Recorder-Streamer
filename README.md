@@ -100,6 +100,9 @@ app/
 - Android Studio (Hedgehog or newer recommended)
 - Android SDK 28+ (App targets modern Android; uses network security config defaults)
 - Device or emulator with microphone access
+- Optional for document generation (docs/agreements_flow):
+  - Pandoc installed (for PDF/PPTX/DOCX export)
+  - LaTeX (MiKTeX) for high-quality PDF via xelatex (or adjust script to wkhtmltopdf)
 
 ### Clone & Open
 ```
@@ -161,6 +164,24 @@ Behind the scenes, `LiveStreamingViewModel` rebuilds the WS client whenever you 
 Audio format: PCM signed 16‑bit little‑endian, 16 kHz, mono.
 
 ---
+
+## Docs: Fluxo de Aprovação e Pagamentos de Acordos (PDF/PPTX/DOCX)
+Este repositório inclui um artefato documental gerado a partir de um único arquivo-fonte em Markdown.
+
+- Fonte: docs/agreements_flow/fluxo_acordos.md
+- Script de geração (Windows/PowerShell): docs/agreements_flow/generate_outputs.ps1
+- Saída: docs/agreements_flow/dist/
+  - fluxo_acordos.pdf
+  - fluxo_acordos.pptx
+  - fluxo_acordos.docx
+
+Como gerar:
+1) Abra o PowerShell na raiz do projeto
+2) Execute:
+```
+./docs/agreements_flow/generate_outputs.ps1
+```
+Pré-requisitos: Pandoc no PATH. Para PDF de alta qualidade, instale MiKTeX (ou ajuste o script para outro motor como wkhtmltopdf).
 
 ## Troubleshooting
 - Error: "CLEARTEXT communication to <ip> not permitted by network security policy"
