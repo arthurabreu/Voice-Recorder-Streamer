@@ -15,7 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data.FileRecorder
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data.SendFileOverWs
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceWsClient
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data.VoiceWsClient
 import kotlinx.coroutines.launch
 import java.io.File
 

@@ -1,6 +1,6 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data
 
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceWsClient
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data.VoiceWsClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

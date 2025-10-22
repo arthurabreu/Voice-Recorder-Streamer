@@ -12,7 +12,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.File
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import java.util.UUID
 import kotlin.math.sqrt
 
@@ -22,28 +23,10 @@ class VoiceStreamer(
 ) {
     private var recorder: AudioRecord? = null
     private var streamingJob: Job? = null
-    private var onLevel: ((Float) -> Unit)? = null
-    private var wavWriter: PcmWavWriter? = null
 
-    fun startRecordingTo(file: File) {
-        if (wavWriter != null) return
-        val writer = PcmWavWriter(AudioCaptureConfig.SAMPLE_RATE, 1)
-        writer.open(file)
-        wavWriter = writer
-    }
-
-    fun stopRecording(): File? {
-        return try {
-            wavWriter?.close()
-            null
-        } finally {
-            wavWriter = null
-        }
-    }
-
-    fun setOnLevelListener(listener: ((Float) -> Unit)?) {
-        onLevel = listener
-    }
+    // UI-agnostic audio level stream for WaveForm or any consumer
+    private val _levels = MutableSharedFlow<Float>(extraBufferCapacity = 64)
+    val levels: SharedFlow<Float> = _levels
 
     private fun computeLevel(bytes: ByteArray, length: Int): Float {
         // Compute RMS level from 16-bit PCM little-endian, normalize approximately to 0..1
@@ -97,14 +80,14 @@ class VoiceStreamer(
                 while (isActive && running) {
                     val read = recorder?.read(buf, 0, buf.size) ?: -1
                     if (read > 0) {
-                        onLevel?.invoke(computeLevel(buf, read))
+                        val level = computeLevel(buf, read)
+                        _levels.tryEmit(level) // non-blocking emit for waveform consumers
+
                         val frame = if (read == buf.size) buf else buf.copyOf(read)
                         // Send over WS
                         if (!ws.sendBinary(frame)) {
                             running = false
                         }
-                        // Optionally record to WAV
-                        wavWriter?.write(frame)
                     } else if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_BAD_VALUE) {
                         running = false
                     }

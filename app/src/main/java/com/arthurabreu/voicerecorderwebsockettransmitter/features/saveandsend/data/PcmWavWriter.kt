@@ -1,4 +1,4 @@
-package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data
+package com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data
 
 import java.io.File
 import java.io.FileOutputStream

@@ -1,9 +1,14 @@
-package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data
+package com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data
 
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceSocket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import okhttp3.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import okio.ByteString
 
 class VoiceWsClient(
@@ -44,6 +49,6 @@ class VoiceWsClient(
     }
 
     override fun sendText(json: String): Boolean = webSocket?.send(json) == true
-    override fun sendBinary(bytes: ByteArray): Boolean = webSocket?.send(ByteString.of(*bytes)) == true
+    override fun sendBinary(bytes: ByteArray): Boolean = webSocket?.send(ByteString.Companion.of(*bytes)) == true
     override fun close(code: Int, reason: String) { webSocket?.close(code, reason) }
 }

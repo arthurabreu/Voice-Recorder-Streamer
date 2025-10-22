@@ -2,11 +2,11 @@ package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.dom
 
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceSocket
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceStreamer
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.Balloon
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.BalloonType
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.StreamingState
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.UiState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -14,14 +14,13 @@ import java.io.File
 /**
  * Default implementation of [LiveStreamingController].
  *
- * Responsibilities:
- * - Orchestrates the lifecycle of audio capture and WebSocket streaming.
- * - Exposes a single [StateFlow] of [StreamingState] to drive the UI (single source of truth).
- * - Encapsulates configuration such as emulation mode, WS URL, and token provider.
+ * This version has been decoupled from UI concerns:
+ * - No balloons, overlays, or saved-items management.
+ * - No waveform level tracking.
+ * - No temp file recording orchestration here (capture still happens inside VoiceStreamer as needed).
  *
- * Notes for juniors/seniors:
- * - Keep this class free of Android framework types (Clean Architecture). It only depends on domain/data abstractions.
- * - All side-effects (WS connect, file IO) are delegated to collaborators injected by factories.
+ * You can plug this controller into any ViewModel in this or another project
+ * without bringing UI classes into the streaming flow.
  */
 internal class DefaultLiveStreamingController(
     private val socketFactory: VoiceSocketFactory,
@@ -29,7 +28,7 @@ internal class DefaultLiveStreamingController(
     private val scope: CoroutineScope
 ) : LiveStreamingController {
 
-    // Unified streaming state
+    // Kept for API compatibility; not mutated by WS events anymore
     private val _state = MutableStateFlow(StreamingState())
     override val state: StateFlow<StreamingState> = _state
 
@@ -40,82 +39,92 @@ internal class DefaultLiveStreamingController(
 
     private var wsClient: VoiceSocket = socketFactory.create(emulate, wsUrl, tokenProvider)
 
-    private var streamer: VoiceStreamer = streamerFactory.create(wsClient, scope).apply {
-        setOnLevelListener { level -> pushLevel(level) }
+    private var streamer: VoiceStreamer = streamerFactory.create(wsClient, scope)
+
+    private var levelsJob: Job? = null
+
+    private fun attachLevels() {
+        levelsJob?.cancel()
+        levelsJob = scope.launch {
+            try {
+                streamer.levels.collect { level -> pushLevel(level) }
+            } catch (_: Throwable) {
+                // ignore
+            }
+        }
     }
 
-    // Track whether the user initiated a stop, so we don't reset UI to Idle on normal close
+    private fun pushLevel(level: Float) {
+        val current = _state.value.levels
+        val max = 60
+        val trimmed = if (current.size >= max) current.drop(current.size - (max - 1)) else current
+        _state.value = _state.value.copy(levels = trimmed + level)
+    }
+
+    // Track whether the user initiated a stop
     private var isStopping: Boolean = false
 
-    // Recording helper
-    private var tempFile: File? = null
+    init {
+        attachLevels()
+    }
 
     override fun setEmulationMode(enabled: Boolean) {
         emulate = enabled
         wsClient.close()
         wsClient = socketFactory.create(emulate, wsUrl, tokenProvider)
-        streamer = streamerFactory.create(wsClient, scope).apply {
-            setOnLevelListener { level -> pushLevel(level) }
-        }
+        streamer = streamerFactory.create(wsClient, scope)
+        attachLevels()
     }
 
     override fun setWebSocketUrl(url: String) {
         wsUrl = url
         wsClient.close()
         wsClient = socketFactory.create(emulate, wsUrl, tokenProvider)
-        streamer = streamerFactory.create(wsClient, scope).apply {
-            setOnLevelListener { level -> pushLevel(level) }
-        }
+        streamer = streamerFactory.create(wsClient, scope)
+        attachLevels()
     }
 
     override fun setTokenProvider(provider: suspend () -> String) {
         tokenProvider = LambdaTokenProvider(provider)
         wsClient.close()
         wsClient = socketFactory.create(emulate, wsUrl, tokenProvider)
-        streamer = streamerFactory.create(wsClient, scope).apply {
-            setOnLevelListener { level -> pushLevel(level) }
-        }
+        streamer = streamerFactory.create(wsClient, scope)
+        attachLevels()
     }
 
     override fun start(language: String, outputDir: File) {
-        // Prepare temp file
-        tempFile = File(outputDir, "stream_${'$'}{System.currentTimeMillis()}.wav")
-        _state.value = _state.value.copy(savedFile = null)
-
-        _state.value = _state.value.copy(status = if (emulate) "Streaming Local WebSocket" else "Connecting...")
-        _state.value = _state.value.copy(uiState = UiState.Streaming)
+        // No temp file handling here; streaming is independent of UI or storage
+        // Minimal UI-agnostic state to keep current screen working
+        _state.value = _state.value.copy(status = if (emulate) "Streaming Local WebSocket" else "Connecting...",
+            uiState = UiState.Streaming)
 
         wsClient.connect(
             scope = scope,
             onOpen = {
                 _state.value = _state.value.copy(status = "Streaming")
-                showBalloon("Streaming started", BalloonType.Success)
-                tempFile?.let { streamer.startRecordingTo(it) }
                 streamer.startStreaming(language)
             },
-            onMessage = { msg -> _state.value = _state.value.copy(lastServerMessage = msg) },
+            onMessage = { msg ->
+                _state.value = _state.value.copy(lastServerMessage = msg)
+            },
             onFailure = { t ->
                 _state.value = _state.value.copy(status = "Error: ${'$'}{t.message}")
                 if (isStopping) {
-                    // If we are stopping, do not override the Stopped state; swallow failure
                     isStopping = false
                 } else {
                     _state.value = _state.value.copy(uiState = UiState.Idle)
-                    showBalloon("Error: ${'$'}{t.message}", BalloonType.Error)
                 }
             },
-            onClosed = { _, reason ->
+            onClosed = { _, _ ->
                 _state.value = _state.value.copy(status = "Closed")
                 if (isStopping) {
-                    // We initiated the stop; keep UI in Stopped state so Save/Cancel are visible
                     isStopping = false
                 } else {
                     _state.value = _state.value.copy(uiState = UiState.Idle)
-                    showBalloon("Closed: ${'$'}reason", BalloonType.Error)
                 }
             },
             onBinary = {
-            // recebemos os dados binarios para transformar em audio aqui
+                // no-op
             }
         )
     }
@@ -127,88 +136,20 @@ internal class DefaultLiveStreamingController(
     }
 
     override fun cancel() {
-        // Discard recording and reset
-        tempFile?.delete()
-        tempFile = null
-        _state.value = _state.value.copy(
-            savedFile = null,
-            uiState = UiState.Idle,
-            status = "Idle",
-            levels = emptyList()
-        )
+        // No-op: no temp recording to discard here
     }
 
     override fun save() {
-        _state.value = _state.value.copy(uiState = UiState.Saving)
-        try {
-            streamer.stopRecording()
-            _state.value = _state.value.copy(savedFile = tempFile, uiState = UiState.Saved)
-            showBalloon("Saved recording", BalloonType.Success)
-            // Show player overlay
-            _state.value = _state.value.copy(showPlayerOverlay = tempFile)
-            // Add to saved items list
-            tempFile?.let { f ->
-                if (f.exists()) {
-                    val current = _state.value.savedItems.toMutableList()
-                    // avoid duplicates
-                    if (current.none { it.absolutePath == f.absolutePath }) {
-                        current.add(0, f)
-                        _state.value = _state.value.copy(
-                            savedItems = current.sortedByDescending { it.lastModified() }
-                        )
-                    }
-                }
-            }
-        } catch (t: Throwable) {
-            showBalloon("Save failed: ${'$'}{t.message}", BalloonType.Error)
-            _state.value = _state.value.copy(uiState = UiState.Stopped)
-        }
+        // No-op: saving was removed from the controller; see RemovedStreamingUiAndSave.kt for previous implementation
     }
 
-    private fun pushLevel(level: Float) {
-        val list = _state.value.levels.toMutableList()
-        list += level
-        val max = 60
-        if (list.size > max) repeat(list.size - max) { list.removeAt(0) }
-        _state.value = _state.value.copy(levels = list)
-    }
+    override fun consumeBalloon() { /* no-op */ }
 
-    private fun showBalloon(message: String, type: BalloonType) {
-        _state.value = _state.value.copy(balloon = Balloon(message, type))
-    }
+    override fun dismissPlayerOverlay() { /* no-op */ }
 
-    override fun consumeBalloon() { _state.value = _state.value.copy(balloon = null) }
+    override fun refreshSaved(vararg dirs: File) { /* no-op */ }
 
-    override fun dismissPlayerOverlay() { _state.value = _state.value.copy(showPlayerOverlay = null) }
+    override fun deleteFile(file: File) { /* no-op */ }
 
-    override fun refreshSaved(vararg dirs: File) {
-        val found = mutableListOf<File>()
-        dirs.forEach { dir ->
-            dir.listFiles()?.forEach { f ->
-                val name = f.name.lowercase()
-                if (f.isFile && (name.endsWith(".wav") || name.endsWith(".m4a"))) {
-                    found.add(f)
-                }
-            }
-        }
-        _state.value = _state.value.copy(
-            savedItems = found.distinctBy { it.absolutePath }.sortedByDescending { it.lastModified() }
-        )
-    }
-
-    override fun deleteFile(file: File) {
-        val ok = try { file.delete() } catch (_: Throwable) { false }
-        if (ok) {
-            _state.value = _state.value.copy(
-                savedItems = _state.value.savedItems.filterNot { it.absolutePath == file.absolutePath }
-            )
-            showBalloon("Deleted", BalloonType.Success)
-        } else {
-            showBalloon("Failed to delete", BalloonType.Error)
-        }
-    }
-
-    override fun preview(file: File) {
-        _state.value = _state.value.copy(showPlayerOverlay = file)
-    }
+    override fun preview(file: File) { /* no-op */ }
 }
