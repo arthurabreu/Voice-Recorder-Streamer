@@ -1,7 +1,9 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -10,7 +12,7 @@ class FakeVoiceWsClient : VoiceSocket {
     private var sentBytes: Long = 0
 
     private var onClosedCb: ((Int, String) -> Unit)? = null
-    private var heartbeatJob: kotlinx.coroutines.Job? = null
+    private var heartbeatJob: Job? = null
 
     override fun connect(
         scope: CoroutineScope,
@@ -34,7 +36,7 @@ class FakeVoiceWsClient : VoiceSocket {
                     tick++
                     onMessage("fake: tick=$tick, sentBytes=$sentBytes")
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 // Normal cancellation when closing; do not propagate as failure
             } catch (t: Throwable) {
                 onFailure(t)

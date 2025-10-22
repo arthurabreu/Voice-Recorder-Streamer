@@ -2,7 +2,6 @@ package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.dat
 
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.TokenProvider
 import io.ktor.client.HttpClient
-import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.header
 import io.ktor.websocket.Frame

@@ -474,3 +474,141 @@ Controles:
 - Agora a tela de streaming mostra ondas reativas e balões de feedback.
 - Sem backend? Deixe `emulate = true` no ViewModel e teste a UI com ondas animadas.
 - Com backend? Desative a emulação, configure URL/token e teste com áudio real.
+
+### Organização do pacote de Streaming (atualizada)
+
+Para facilitar a manutenção (Clean Code) e respeitar SOLID, o pacote `features.streaming` foi reorganizado em subpacotes por responsabilidade:
+
+- presentation
+  - LiveStreamingViewModel.kt (ponto de entrada da tela)
+- domain
+  - AudioCapture.kt (config e criação do AudioRecord)
+  - LiveStreamingController.kt (contrato do caso de uso)
+  - DefaultLiveStreamingController.kt (orquestrador da feature)
+  - LiveStreamingControllerFactory.kt / DefaultLiveStreamingControllerFactory.kt (fábricas do controller)
+  - VoiceSocketFactory.kt / DefaultVoiceSocketFactory.kt (fábricas de sockets)
+  - VoiceStreamerFactory.kt / DefaultVoiceStreamerFactory.kt (fábricas do streamer)
+  - TokenProvider.kt / LambdaTokenProvider.kt (autenticação)
+  - socket
+    - VoiceSocket.kt (abstração de WebSocket no domínio)
+- data
+  - websocket
+    - KtorVoiceWsClient.kt (implementação real baseada em Ktor WebSockets)
+    - VoiceWsClient.kt (implementação baseada em OkHttp WebSocket)
+    - [migrado para pacote fake] FakeVoiceWsClient.kt (implementação fake para emulação/local)
+  - voicestreamer
+    - VoiceStreamer.kt (captura áudio e envia frames para o socket)
+    - io
+      - PcmWavWriter.kt (utilitário para gravar WAV opcionalmente durante o streaming)
+- ui
+  - ... componentes Compose e estados (StreamingState, UiState, Balloon etc.)
+
+Por que assim?
+- SRP (Single Responsibility Principle): cada arquivo/pacote tem uma responsabilidade clara (ex.: `data.websocket` lida apenas com WebSocket, `data.voicestreamer` apenas com captura/envio de áudio). 
+- DIP (Dependency Inversion Principle): o domínio depende de abstrações (`VoiceSocket`) e de fábricas, não das implementações concretas (Ktor/OkHttp). Implementações ficam no `data` e são injetadas via factories.
+- Open/Closed: para adicionar um novo cliente WS (ex.: Jetty), crie outro arquivo em `data.websocket` sem mudar o domínio.
+
+---
+
+### Organograma (fluxo de chamadas)
+
+1) LiveStreamingViewModel (presentation)
+   - É o ponto central onde o streaming começa para a UI. Ele recebe um `LiveStreamingControllerFactory` e cria um `LiveStreamingController` ligado ao `viewModelScope`.
+   - O ViewModel expõe `state: StateFlow<StreamingState>` (imutável) para a UI.
+   - Métodos públicos do ViewModel delegam diretamente para o controller: `start/stop/cancel/save`, `setWebSocketUrl`, `setEmulationMode`, `setTokenProvider`, e ações de UI como `preview`, `dismissPlayerOverlay`, etc.
+
+2) LiveStreamingControllerFactory (domain)
+   - controllerFactory.create(scope) → cria o orquestrador `DefaultLiveStreamingController` com as dependências certas (fábricas de socket e streamer).
+
+3) DefaultLiveStreamingController (domain)
+   - Responsável por coordenar todo o ciclo de vida do streaming e manter o `StreamingState` único para a UI.
+   - Ao configurar:
+     - setEmulationMode(enabled) → recria o socket via `VoiceSocketFactory` (fake ou real) e recria o `VoiceStreamer` via `VoiceStreamerFactory`.
+     - setWebSocketUrl(url) → idem, atualiza a configuração de conexão.
+     - setTokenProvider(provider) → envolve o provider em `LambdaTokenProvider` e recria o socket.
+   - Ao iniciar:
+     - start(language, outputDir) → define estado para Streaming/Connecting, cria arquivo temporário para gravação WAV opcional e chama `wsClient.connect(...)` com callbacks.
+     - onOpen → atualiza estado, mostra balloon de sucesso, inicia `VoiceStreamer.startRecordingTo(file)` e `VoiceStreamer.startStreaming(language)`.
+     - onMessage → atualiza `lastServerMessage` no estado.
+     - onFailure/onClosed → ajusta estado (Stopped/Idle), mostra balloon de erro quando apropriado.
+   - Ao parar/cancelar/salvar → encerra streamer, fecha socket e gerencia arquivo temporário.
+
+4) VoiceSocketFactory (domain)
+   - create(emulate, url, tokenProvider) → devolve um `VoiceSocket` (abstração de socket no domínio):
+     - FakeVoiceWsClient (features.streaming.fake) disponível para emulação/local, mas atualmente não está conectado pelo factory (DefaultVoiceSocketFactory sempre retorna o cliente Ktor).
+     - KtorVoiceWsClient (data.websocket) para produção (usa HttpClient + plugin WebSockets). Alternativamente, `VoiceWsClient` (OkHttp) pode ser usado conforme necessidade.
+
+5) VoiceStreamerFactory (domain)
+   - create(socket, scope) → devolve um `VoiceStreamer` (data.voicestreamer) já conectado ao `VoiceSocket` e ao escopo IO.
+
+6) VoiceStreamer (data.voicestreamer)
+   - Ao iniciar: envia JSON "start" com metadados (encoding LINEAR16, sampleRate 16000, channels 1, language), cria `AudioRecord` via `domain.AudioCapture`, e entra num loop de leitura de frames PCM.
+   - Para cada frame: calcula nível RMS (0..1) para UI e envia binário via `VoiceSocket.sendBinary(bytes)`; opcionalmente persiste no WAV via `PcmWavWriter`.
+   - Ao parar: cancela job, para/libera `AudioRecord`, envia `{"type":"stop"}` e fecha o socket.
+
+7) data.websocket.* (implementações do socket)
+   - KtorVoiceWsClient: usa `HttpClient.webSocket` e integra callbacks (onOpen/onMessage/onBinary/onClosed/onFailure). Adiciona header Authorization com Bearer token de `TokenProvider`.
+   - VoiceWsClient (OkHttp): alternativa com OkHttp WebSocket.
+   - FakeVoiceWsClient (features.streaming.fake): simula heartbeat e aceita binários, útil para desenvolvimento sem backend. Atualmente permanece no código sem ser utilizado pelo factory.
+
+Resumo do fluxo: ViewModel → ControllerFactory → Controller → (VoiceSocketFactory → VoiceSocket) + (VoiceStreamerFactory → VoiceStreamer) → WebSocket abre → VoiceStreamer envia start → captura áudio e envia binário → UI atualiza com nível/status → stop/cancel fecham tudo.
+
+---
+
+### Notas de Clean Code/SOLID aplicadas
+- Abstrações no domínio (interfaces e factories) e implementações no data.
+- Uma única fonte de verdade para o estado da UI (`StreamingState`).
+- Classes pequenas com nomes claros e comentários direcionados para orientar novos contribuidores.
+- Pontos de extensão: novas implementações de WebSocket ou formatos de áudio podem ser adicionadas em `data` sem tocar no `domain`.
+
+---
+
+As seções abaixo mantêm a documentação original detalhada (com trechos de código) para referência técnica. Elas foram preservadas e complementadas pela organização acima.
+
+
+
+---
+
+### Documentação das classes (complementar)
+
+As seções abaixo descrevem, de forma breve, as classes que fazem parte dos pacotes `domain` e `data` e que ainda não estavam explicadas anteriormente.
+
+- domain/socket/VoiceSocket.kt
+  - O que é: Abstração de WebSocket no domínio. Padroniza operações de `connect`, `sendText`, `sendBinary` e `close` com callbacks para eventos.
+  - Por que existe: Permite que o domínio dependa de uma interface estável enquanto as implementações reais (Ktor/OkHttp/Fake) ficam no `data`.
+
+- domain/LiveStreamingController.kt
+  - O que é: Contrato do caso de uso principal da feature (streaming ao vivo). Expõe `state: StateFlow<StreamingState>` e métodos `start/stop/cancel/save`, além de utilitários de UI.
+  - Por que existe: Isola a lógica de orquestração para que a UI (ViewModel/Compose) apenas observe estado e despache intenções.
+
+- domain/LiveStreamingControllerFactory.kt e domain/DefaultLiveStreamingControllerFactory.kt
+  - O que são: Fábricas para criar o `LiveStreamingController` já configurado com as dependências necessárias (factories de socket e streamer) e o `CoroutineScope` do chamador.
+  - Por que existem: Facilita injeção de dependências e testes, evitando acoplamento da UI ao construtor concreto.
+
+- domain/DefaultLiveStreamingController.kt
+  - O que é: Implementação padrão do `LiveStreamingController`. Coordena ciclo de vida do WebSocket, `VoiceStreamer`, arquivo temporário WAV e atualiza o `StreamingState`.
+  - Destaques: Recria socket/streamer ao mudar `emulate`, `url` ou `tokenProvider`. Em `start`, conecta o socket, inicia captura e envia mensagens `start/stop` conforme necessário.
+
+- domain/VoiceSocketFactory.kt e domain/DefaultVoiceSocketFactory.kt
+  - O que são: Fábrica abstrata e sua implementação padrão para criar um `VoiceSocket`.
+  - Implementação atual: `DefaultVoiceSocketFactory` está configurada para SEMPRE retornar `KtorVoiceWsClient` (ignora `emulate` por enquanto). O `FakeVoiceWsClient` permanece no pacote `features.streaming.fake`, mas não é usado automaticamente.
+
+- domain/VoiceStreamerFactory.kt e domain/DefaultVoiceStreamerFactory.kt
+  - O que são: Fábrica abstrata e implementação para criar `VoiceStreamer` associado a um `VoiceSocket` e a um `CoroutineScope`.
+  - Por que existem: Mantêm o domínio desacoplado da construção do componente de captura/streaming.
+
+- domain/TokenProvider.kt e domain/LambdaTokenProvider.kt
+  - O que são: Abstração para fornecimento de token de autenticação e um adaptador simples baseado em lambda para uso prático.
+  - Por que existem: Evitam passar Strings cruas e permitem estratégias assíncronas de obtenção de token.
+
+- data/websocket/KtorVoiceWsClient.kt
+  - O que é: Implementação real de `VoiceSocket` usando Ktor WebSockets. Abre sessão, envia/recebe `Frame.Text` e `Frame.Binary`, e propaga eventos via callbacks.
+  - Quando usar: Produção. Integra bem com `HttpClient` compartilhado e plugin `WebSockets`.
+
+- data/voicestreamer/io/PcmWavWriter.kt
+  - O que é: Gravador mínimo de WAV (16-bit PCM mono). Escreve cabeçalho RIFF/WAVE e amostras em little‑endian.
+  - Quando é utilizado: Opcionalmente pelo `VoiceStreamer` para salvar um arquivo temporário durante a sessão, permitindo `save/cancel` no fluxo.
+
+- features/streaming/fake/FakeVoiceWsClient.kt
+  - O que é: Implementação fake de `VoiceSocket` para desenvolvimento/local. Simula abertura, envia "heartbeats" e aceita binários para teste de UI/fluxo.
+  - Situação atual: Está disponível mas não é instanciada por `DefaultVoiceSocketFactory`. Útil para testes manuais caso conectado explicitamente.

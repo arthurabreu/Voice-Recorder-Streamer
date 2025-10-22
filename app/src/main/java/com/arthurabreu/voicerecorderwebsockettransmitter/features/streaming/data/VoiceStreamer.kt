@@ -6,12 +6,14 @@ import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.AudioCaptureConfig
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.createAudioRecord
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 import kotlin.math.sqrt
 
 class VoiceStreamer(
@@ -69,7 +71,7 @@ class VoiceStreamer(
 
         // Send a start message immediately; caller should invoke this only once the WS is open
         val start = """
-        {"type":"start","sessionId":"${java.util.UUID.randomUUID()}",
+        {"type":"start","sessionId":"${UUID.randomUUID()}",
          "audio":{"encoding":"LINEAR16","sampleRate":${AudioCaptureConfig.SAMPLE_RATE},"channels":1},
          "language":"$language"}
         """.trimIndent()
@@ -107,7 +109,7 @@ class VoiceStreamer(
                         running = false
                     }
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 // Normal path when stopping streaming; suppress noisy cancellation logs
             } catch (_: Throwable) {
                 // Swallow other exceptions to avoid crashing UI; connection callbacks will handle failures

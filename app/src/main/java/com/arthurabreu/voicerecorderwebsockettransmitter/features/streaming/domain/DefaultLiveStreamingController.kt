@@ -113,6 +113,9 @@ internal class DefaultLiveStreamingController(
                     _state.value = _state.value.copy(uiState = UiState.Idle)
                     showBalloon("Closed: ${'$'}reason", BalloonType.Error)
                 }
+            },
+            onBinary = {
+            // recebemos os dados binarios para transformar em audio aqui
             }
         )
     }
