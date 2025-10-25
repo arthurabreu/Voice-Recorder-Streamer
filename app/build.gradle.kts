@@ -52,6 +52,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
 
+    // Image loading for Compose (avatar)
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
     // Koin DI
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)

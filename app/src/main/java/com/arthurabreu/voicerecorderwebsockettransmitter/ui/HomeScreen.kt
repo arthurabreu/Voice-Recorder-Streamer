@@ -11,7 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.LiveStreamingScreen
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.AssistantCallScreen
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.ui.SaveAndSendScreen
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.transcription.ui.TranscriptionScreen
 
@@ -33,7 +33,7 @@ fun HomeScreen() {
             Button(onClick = { screen = HomeNav.SAVE_SEND }) { Text("Save and send audio") }
         }
         HomeNav.TRANSCRIPTION -> TranscriptionScreen()
-        HomeNav.LIVE -> LiveStreamingScreen(onBack = { screen = HomeNav.HOME })
+        HomeNav.LIVE -> AssistantCallScreen(onBack = { screen = HomeNav.HOME })
         HomeNav.SAVE_SEND -> SaveAndSendScreen(onBack = { screen = HomeNav.HOME })
     }
 }
