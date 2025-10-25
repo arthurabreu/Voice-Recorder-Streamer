@@ -1,7 +1,10 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain
 
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.PcmAudioPlayer
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceSocket
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data.VoiceStreamer
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.deeplink.DeeplinkEnvelope
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.deeplink.DeeplinkPayload
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.StreamingState
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.UiState
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +45,9 @@ internal class DefaultLiveStreamingController(
     private var streamer: VoiceStreamer = streamerFactory.create(wsClient, scope)
 
     private var levelsJob: Job? = null
+
+    // Headless playback for downlink audio (from WS binary frames)
+    private var downlinkPlayer: PcmAudioPlayer? = null
 
     private fun attachLevels() {
         levelsJob?.cancel()
@@ -103,12 +109,28 @@ internal class DefaultLiveStreamingController(
             onOpen = {
                 _state.value = _state.value.copy(status = "Streaming")
                 streamer.startStreaming(language)
+                // start downlink player to reproduce audio received from backend
+                downlinkPlayer = PcmAudioPlayer(scope = scope).also { it.start() }
             },
             onMessage = { msg ->
-                _state.value = _state.value.copy(lastServerMessage = msg)
+                // Try to parse deeplink envelope; if not a deeplink, keep raw message
+                val env = DeeplinkEnvelope.parse(msg)
+                if (env != null) {
+                    val summary = buildString {
+                        append("Deeplink(sucesso=")
+                        append(env.sucesso)
+                        append(", passo=")
+                        append(env.proximoPasso ?: "-")
+                        append(")")
+                    }
+                    _state.value = _state.value.copy(lastServerMessage = summary)
+                } else {
+                    _state.value = _state.value.copy(lastServerMessage = msg)
+                }
             },
             onFailure = { t ->
                 _state.value = _state.value.copy(status = "Error: ${'$'}{t.message}")
+                downlinkPlayer?.stop(); downlinkPlayer = null
                 if (isStopping) {
                     isStopping = false
                 } else {
@@ -117,14 +139,16 @@ internal class DefaultLiveStreamingController(
             },
             onClosed = { _, _ ->
                 _state.value = _state.value.copy(status = "Closed")
+                downlinkPlayer?.stop(); downlinkPlayer = null
                 if (isStopping) {
                     isStopping = false
                 } else {
                     _state.value = _state.value.copy(uiState = UiState.Idle)
                 }
             },
-            onBinary = {
-                // no-op
+            onBinary = { bytes ->
+                // assume backend sends PCM 16k mono 16-bit little-endian
+                downlinkPlayer?.offerPcm(bytes)
             }
         )
     }
@@ -132,6 +156,7 @@ internal class DefaultLiveStreamingController(
     override fun stop() {
         isStopping = true
         streamer.stopStreaming()
+        downlinkPlayer?.stop(); downlinkPlayer = null
         _state.value = _state.value.copy(status = "Stopped", uiState = UiState.Stopped)
     }
 
@@ -152,4 +177,20 @@ internal class DefaultLiveStreamingController(
     override fun deleteFile(file: File) { /* no-op */ }
 
     override fun preview(file: File) { /* no-op */ }
+
+    override fun sendDeeplink(
+        payload: DeeplinkPayload,
+        sucesso: Boolean,
+        link: String,
+        proximoPasso: Int
+    ): Boolean {
+        val envelope = DeeplinkEnvelope(
+            acao = "deeplink",
+            sucesso = sucesso,
+            payloadDeeplinkRaw = payload.toJsonString(),
+            link = link,
+            proximoPasso = proximoPasso
+        )
+        return wsClient.sendText(envelope.toJsonString())
+    }
 }

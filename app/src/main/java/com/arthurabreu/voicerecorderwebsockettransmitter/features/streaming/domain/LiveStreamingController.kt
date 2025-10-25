@@ -59,4 +59,10 @@ interface LiveStreamingController {
 
     /** Hide player overlay. */
     fun dismissPlayerOverlay()
+
+    /** Send a deeplink JSON message over the active WebSocket session. */
+    fun sendDeeplink(payload: com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.deeplink.DeeplinkPayload,
+                     sucesso: Boolean = true,
+                     link: String = "http:///",
+                     proximoPasso: Int = 0): Boolean
 }
