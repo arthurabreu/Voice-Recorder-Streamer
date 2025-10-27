@@ -4,8 +4,12 @@ import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.doma
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.header
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
+import io.ktor.websocket.close
+import io.ktor.websocket.readBytes
+import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,8 +44,8 @@ class KtorVoiceWsClient(
                     try {
                         for (frame in incoming) {
                             when (frame) {
-                                is Frame.Text -> onMessage(frame.data.decodeToString())
-                                is Frame.Binary -> onBinary(frame.data)
+                                is Frame.Text -> onMessage(frame.readText())
+                                is Frame.Binary -> onBinary(frame.readBytes())
                                 is Frame.Close -> {
                                     onClosed(1000, "")
                                     break
@@ -76,6 +80,14 @@ class KtorVoiceWsClient(
     }
 
     override fun close(code: Int, reason: String) {
-        session = null
+        val s = session ?: return
+        val scope = connectScope ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                s.close(CloseReason(code.toShort(), reason))
+            } finally {
+                session = null
+            }
+        }
     }
 }
