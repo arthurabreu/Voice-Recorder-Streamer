@@ -10,7 +10,6 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import okio.ByteString.Companion.toByteString
 
 class VoiceWsClient(
     private val url: String,
@@ -50,6 +49,6 @@ class VoiceWsClient(
     }
 
     override fun sendText(json: String): Boolean = webSocket?.send(json) == true
-    override fun sendBinary(bytes: ByteArray): Boolean = webSocket?.send(bytes.toByteString()) == true
+    override fun sendBinary(bytes: ByteArray): Boolean = webSocket?.send(ByteString.Companion.of(*bytes)) == true
     override fun close(code: Int, reason: String) { webSocket?.close(code, reason) }
 }
