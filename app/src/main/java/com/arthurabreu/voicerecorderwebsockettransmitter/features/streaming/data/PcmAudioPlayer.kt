@@ -4,11 +4,9 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Headless PCM audio player used to play back bytes received over WebSocket.
@@ -19,15 +17,12 @@ import kotlinx.coroutines.launch
 class PcmAudioPlayer(
     private val sampleRate: Int = 16000,
     private val channelConfig: Int = AudioFormat.CHANNEL_OUT_MONO,
-    private val audioFormat: Int = AudioFormat.ENCODING_PCM_16BIT,
-    private val scope: CoroutineScope
+    private val audioFormat: Int = AudioFormat.ENCODING_PCM_16BIT
 ) {
     private var track: AudioTrack? = null
-    private var job: Job? = null
     private val buffer = Channel<ByteArray>(capacity = Channel.UNLIMITED)
 
-    fun start() {
-        if (job != null) return
+    fun prepare() {
         val minBuf = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         track = AudioTrack.Builder()
             .setAudioAttributes(
@@ -47,8 +42,11 @@ class PcmAudioPlayer(
             .setBufferSizeInBytes(minBuf.coerceAtLeast(4 * 1024))
             .build()
         track?.play()
-        job = scope.launch(Dispatchers.IO) {
-            try {
+    }
+
+    suspend fun run() {
+        try {
+            withContext(Dispatchers.IO) {
                 for (chunk in buffer) {
                     val t = track ?: break
                     var offset = 0
@@ -58,13 +56,13 @@ class PcmAudioPlayer(
                         offset += written
                     }
                 }
-            } catch (_: CancellationException) {
-                // normal on stop()
-            } finally {
-                try { track?.stop() } catch (_: Throwable) {}
-                try { track?.release() } catch (_: Throwable) {}
-                track = null
             }
+        } catch (_: CancellationException) {
+            // normal on stop()
+        } finally {
+            try { track?.stop() } catch (_: Throwable) {}
+            try { track?.release() } catch (_: Throwable) {}
+            track = null
         }
     }
 
@@ -73,8 +71,6 @@ class PcmAudioPlayer(
     }
 
     fun stop() {
-        job?.cancel()
-        job = null
         buffer.close()
     }
 }

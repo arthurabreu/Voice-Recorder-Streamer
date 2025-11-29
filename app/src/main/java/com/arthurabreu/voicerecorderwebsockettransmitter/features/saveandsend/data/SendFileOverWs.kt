@@ -1,6 +1,5 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data
 
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.saveandsend.data.VoiceWsClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -12,7 +11,7 @@ class SendFileOverWs(
 ) {
     fun send(file: File) {
         scope.launch(Dispatchers.IO) {
-            ws.connect(scope)
+            ws.connect()
             ws.sendText("{" + "\"type\":\"start\"" + "}")
             file.inputStream().use { input ->
                 val buf = ByteArray(8192)

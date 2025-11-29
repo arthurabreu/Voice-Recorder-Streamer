@@ -6,30 +6,22 @@ import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.AudioCaptureConfig
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.createAudioRecord
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.isActive
 import java.util.UUID
 import kotlin.math.sqrt
 
 class VoiceStreamer(
-    private val ws: VoiceSocket,
-    private val ioScope: CoroutineScope
+    private val ws: VoiceSocket
 ) {
     private var recorder: AudioRecord? = null
-    private var streamingJob: Job? = null
 
-    // UI-agnostic audio level stream for WaveForm or any consumer
     private val _levels = MutableSharedFlow<Float>(extraBufferCapacity = 64)
     val levels: SharedFlow<Float> = _levels
 
     private fun computeLevel(bytes: ByteArray, length: Int): Float {
-        // Compute RMS level from 16-bit PCM little-endian, normalize approximately to 0..1
         var sum = 0.0
         var count = 0
         var i = 0
@@ -49,10 +41,7 @@ class VoiceStreamer(
     }
 
     @SuppressLint("MissingPermission")
-    fun startStreaming(language: String = "pt-BR") {
-        if (streamingJob != null) return
-
-        // Send a start message immediately; caller should invoke this only once the WS is open
+    suspend fun startStreaming(language: String = "pt-BR") {
         val start = """
         {"type":"start","sessionId":"${UUID.randomUUID()}",
          "audio":{"encoding":"LINEAR16","sampleRate":${AudioCaptureConfig.SAMPLE_RATE},"channels":1},
@@ -73,36 +62,28 @@ class VoiceStreamer(
             } catch (_: SecurityException) { /* permission handled by UI */ }
         }
 
-        streamingJob = ioScope.launch(Dispatchers.IO) {
-            val buf = ByteArray(AudioCaptureConfig.FRAME_BYTES_20MS)
-            try {
-                var running = true
-                while (isActive && running) {
-                    val read = recorder?.read(buf, 0, buf.size) ?: -1
-                    if (read > 0) {
-                        val level = computeLevel(buf, read)
-                        _levels.tryEmit(level) // non-blocking emit for waveform consumers
+        val buf = ByteArray(AudioCaptureConfig.FRAME_BYTES_20MS)
+        try {
+            var running = true
+            while (currentCoroutineContext().isActive && running) {
+                val read = recorder?.read(buf, 0, buf.size) ?: -1
+                if (read > 0) {
+                    val level = computeLevel(buf, read)
+                    _levels.tryEmit(level)
 
-                        val frame = if (read == buf.size) buf else buf.copyOf(read)
-                        // Send over WS
-                        if (!ws.sendBinary(frame)) {
-                            running = false
-                        }
-                    } else if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_BAD_VALUE) {
-                        running = false
-                    }
+                    val frame = if (read == buf.size) buf else buf.copyOf(read)
+                    val ok = ws.sendBinary(frame)
+                    if (!ok) running = false
+                } else if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_BAD_VALUE) {
+                    running = false
                 }
-            } catch (e: CancellationException) {
-                // Normal path when stopping streaming; suppress noisy cancellation logs
-            } catch (_: Throwable) {
-                // Swallow other exceptions to avoid crashing UI; connection callbacks will handle failures
             }
+        } catch (_: Throwable) {
+            // ignore, controller handles callbacks
         }
     }
 
-    fun stopStreaming() {
-        streamingJob?.cancel()
-        streamingJob = null
+    suspend fun stopStreaming() {
         recorder?.run {
             try { stop() } catch (_: Throwable) {}
             release()

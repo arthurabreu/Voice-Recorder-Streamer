@@ -5,24 +5,25 @@ import androidx.lifecycle.viewModelScope
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.LiveStreamingController
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.LiveStreamingControllerFactory
 import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.StreamingState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import java.io.File
 
 class LiveStreamingViewModel(
     private val controllerFactory: LiveStreamingControllerFactory
 ) : ViewModel() {
+    private val controller: LiveStreamingController = controllerFactory.create()
 
-    private val controller: LiveStreamingController = controllerFactory.create(viewModelScope)
-
-    // Unified state for UI
     val state: StateFlow<StreamingState> = controller.state
 
     fun setEmulationMode(enabled: Boolean) = controller.setEmulationMode(enabled)
     fun setWebSocketUrl(url: String) = controller.setWebSocketUrl(url)
     fun setTokenProvider(provider: suspend () -> String) = controller.setTokenProvider(provider)
 
-    fun start(language: String = "pt-BR", outputDir: File) = controller.start(language, outputDir)
-    fun stop() = controller.stop()
+    fun start(language: String = "pt-BR", outputDir: File) =
+        viewModelScope.launch(Dispatchers.IO) { controller.start(language, outputDir) }
+    fun stop() = viewModelScope.launch(Dispatchers.IO) { controller.stop() }
     fun cancel() = controller.cancel()
     fun save() = controller.save()
 

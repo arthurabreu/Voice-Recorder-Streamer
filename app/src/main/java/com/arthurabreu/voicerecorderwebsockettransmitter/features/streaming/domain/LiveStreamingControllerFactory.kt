@@ -1,6 +1,5 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain
 
-import kotlinx.coroutines.CoroutineScope
 
 /**
  * Factory for creating instances of [LiveStreamingController].
@@ -16,5 +15,5 @@ interface LiveStreamingControllerFactory {
      * @param scope Coroutine scope that will own controller jobs.
      * @return A configured [LiveStreamingController].
      */
-    fun create(scope: CoroutineScope): LiveStreamingController
+    fun create(): LiveStreamingController
 }

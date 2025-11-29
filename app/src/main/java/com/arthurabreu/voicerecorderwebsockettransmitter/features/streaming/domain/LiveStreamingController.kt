@@ -1,8 +1,9 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain
 
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.deeplink.DeeplinkPayload
+import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.StreamingState
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
-import com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.ui.state.StreamingState
 
 /**
  * Application-level controller for the live streaming feature.
@@ -34,10 +35,10 @@ interface LiveStreamingController {
      * @param language BCP‑47 tag, e.g., "pt-BR".
      * @param outputDir Directory to store a temporary WAV recording while streaming.
      */
-    fun start(language: String = "pt-BR", outputDir: File)
+    suspend fun start(language: String = "pt-BR", outputDir: File)
 
     /** Request a graceful stop, keeping the temporary recording available for Save. */
-    fun stop()
+    suspend fun stop()
 
     /** Cancel the session and discard any temporary recording. */
     fun cancel()
@@ -61,8 +62,8 @@ interface LiveStreamingController {
     fun dismissPlayerOverlay()
 
     /** Send a deeplink JSON message over the active WebSocket session. */
-    fun sendDeeplink(payload: com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.domain.deeplink.DeeplinkPayload,
-                     sucesso: Boolean = true,
-                     link: String = "http:///",
-                     proximoPasso: Int = 0): Boolean
+    suspend fun sendDeeplink(payload: DeeplinkPayload,
+                             sucesso: Boolean = true,
+                             link: String = "http:///",
+                             proximoPasso: Int = 0): Boolean
 }

@@ -1,11 +1,10 @@
 package com.arthurabreu.voicerecorderwebsockettransmitter.features.streaming.data
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class FakeVoiceWsClient : VoiceSocket {
     @Volatile private var isOpen: Boolean = false
@@ -14,8 +13,7 @@ class FakeVoiceWsClient : VoiceSocket {
     private var onClosedCb: ((Int, String) -> Unit)? = null
     private var heartbeatJob: Job? = null
 
-    override fun connect(
-        scope: CoroutineScope,
+    override suspend fun connect(
         onOpen: () -> Unit,
         onMessage: (String) -> Unit,
         onBinary: (ByteArray) -> Unit,
@@ -27,30 +25,29 @@ class FakeVoiceWsClient : VoiceSocket {
         // Immediately signal open
         onOpen()
         // Start simple heartbeat messages
-        heartbeatJob?.cancel()
-        heartbeatJob = scope.launch(Dispatchers.IO) {
-            var tick = 0
-            try {
+        try {
+            withContext(Dispatchers.IO) {
+                var tick = 0
                 while (isOpen) {
                     delay(1000)
                     tick++
                     onMessage("fake: tick=$tick, sentBytes=$sentBytes")
                 }
-            } catch (e: CancellationException) {
-                // Normal cancellation when closing; do not propagate as failure
-            } catch (t: Throwable) {
-                onFailure(t)
             }
+        } catch (e: CancellationException) {
+            // normal
+        } catch (t: Throwable) {
+            onFailure(t)
         }
     }
 
-    override fun sendText(json: String): Boolean {
+    override suspend fun sendText(json: String): Boolean {
         if (!isOpen) return false
         // Accept any text; could parse for {"type":"stop"} to auto-close if desired
         return true
     }
 
-    override fun sendBinary(bytes: ByteArray): Boolean {
+    override suspend fun sendBinary(bytes: ByteArray): Boolean {
         if (!isOpen) return false
         sentBytes += bytes.size
         return true
