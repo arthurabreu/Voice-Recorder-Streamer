@@ -39,17 +39,11 @@ internal class DefaultLiveStreamingController(
 
     private var streamer: VoiceStreamer = streamerFactory.create(wsClient)
 
-    private var levelsJob: Job? = null
-
     // Headless playback for downlink audio (from WS binary frames)
     private var downlinkPlayer: PcmAudioPlayer? = null
 
     private suspend fun attachLevels() {
-        try {
-            streamer.levels.collect { level -> pushLevel(level) }
-        } catch (_: Throwable) {
-            // ignore
-        }
+        streamer.levels.collect { level -> pushLevel(level) }
     }
 
     private fun pushLevel(level: Float) {
@@ -135,7 +129,8 @@ internal class DefaultLiveStreamingController(
     override suspend fun stop() {
         isStopping = true
         streamer.stopStreaming()
-        downlinkPlayer?.stop(); downlinkPlayer = null
+        downlinkPlayer?.stop();
+        downlinkPlayer = null
         _state.value = _state.value.copy(status = "Stopped", uiState = UiState.Stopped)
     }
 
