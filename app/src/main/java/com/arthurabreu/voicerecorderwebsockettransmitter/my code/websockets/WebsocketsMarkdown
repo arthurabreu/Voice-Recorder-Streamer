@@ -1,0 +1,188 @@
+### com.mercantil.core.websockets — Visão geral da arquitetura
+
+Este documento explica a arquitetura do stack de WebSockets do Assistente IA, com foco no pacote `com.mercantil.core.websockets`. Descreve a separação de responsabilidades (Clean Architecture + SOLID), como os pacotes se conectam entre si e o fluxo ponta‑a‑ponta do áudio e mensagens via WebSocket.
+
+---
+
+#### Objetivo (em uma frase)
+Manter a UI e o ViewModel simples, orquestrando o fluxo de voz por um serviço de domínio (`WsService`) que integra transporte (WebSocket), protocolo (handshake/LPA/payload) e I/O de áudio, tudo orientado a `Flow/StateFlow`.
+
+---
+
+### Mapa de pacotes e responsabilidades
+
+- `com.mercantil.core.websockets.service`
+  - Define o serviço de domínio que orquestra toda a sessão de voz.
+  - Principais classes:
+    - `WsService` (interface): contrato observado pela UI/VM. Expõe `val state: StateFlow<WsUiState>` e operações de ciclo de vida (`start/stop`, permissão do microfone, payload extra).
+    - `DefaultWsService` (impl): integra Transporte (`VoiceSocket`), Protocolo (`ProtocolEngine`) e Áudio (`AudioIo`). Consome eventos do WebSocket, aciona o protocolo, inicia/paralisa captura e toca o áudio recebido.
+
+- `com.mercantil.core.websockets.state`
+  - Modelos de estado consumidos pela UI.
+  - `WsUiState`: estado observado pela UI/VM (status, `connected`, `needsRecordAudioPermission`, níveis do microfone, última mensagem, `finalEntrada`).
+
+- `com.mercantil.core.websockets.protocol`
+  - Regras do protocolo de mensagens do canal (stateless e testável).
+  - `ProtocolEngine`: define como construir o `handshake`, `LPA`, e processar textos recebidos, gerando `ProtocolOutcome` (mensagens a enviar, delta de UI e sinal para iniciar captura).
+  - `DefaultProtocolEngine`: implementação padrão; injeta payload extra opcional; extrai `finalEntrada` quando presente.
+
+- `com.mercantil.core.websockets.headers`
+  - Fornecedores de cabeçalhos/autenticação da sessão WS.
+  - `WsHeadersProvider`: contrato para prover cabeçalhos (ex.: Authorization, Device‑Id, sessão).
+  - `DefaultWsHeadersProvider`: implementação padrão (depende de `TokenProvider`).
+  - `AssistantIaPrefsTokenProvider`: fornece token do SharedPreferences (implementa `TokenProvider`).
+
+- `com.mercantil.core.websockets.voice`
+  - Fábricas e decoradores para o transporte de voz.
+  - `VoiceSocketFactory`: contrato para criar `VoiceSocket` (transporte) com headers/URL.
+  - `DefaultVoiceSocketFactory`: cria `KtorVoiceWsClient` e pode envolver com `AnalyzingVoiceSocket` para logs/telemetria.
+  - `DefaultVoiceStreamerFactory` / `VoiceStreamerFactory`: criação do capturador de áudio (microfone), injetado indiretamente via `AudioIo`.
+  - `AnalyzingVoiceSocket`: decorator que observa eventos do socket e publica logs simplificados de diagnóstico.
+
+- `com.mercantil.core.websockets.transport`
+  - Abstração de transporte WebSocket e eventos, desacoplada do protocolo.
+  - `VoiceSocket`: contrato do cliente WS (ex.: `connect()`, `sendText()`, `sendBinary()`, `close()`, `events: Flow<WsEvent>`).
+  - `WsEvent`: eventos do canal (Open, Text, Binary, Closed, Failure).
+  - `KtorVoiceWsClient`: implementação baseada em Ktor + OkHttp; usa um "single writer" (channel/actor) para serializar envios, evitando concorrência entre corrotinas.
+
+- `com.mercantil.core.websockets.audio`
+  - Abstrações e utilitários de áudio (domínio + dados) usados pelo serviço.
+  - Núcleo (domínio):
+    - `AudioIo`: contrato de I/O de áudio (levels, frames, startPlayer, pushForPlayback, stop).
+    - `AudioPlayer`: abstração de player PCM para playback do áudio recebido.
+    - `AudioCaptureConfig` e `createAudioRecord()`: configuração padronizada de captura de microfone (16kHz/mono/16‑bit) e criação de `AudioRecord`.
+  - Implementações (dados) usadas via fábricas/DI:
+    - `VoiceStreamer`: captura do microfone como `Flow<ByteArray>` e `Flow<Float>` de níveis.
+    - `DefaultAudioIo`: adaptador que combina `VoiceStreamer` (captura) e `PcmAudioPlayer` (playback) por trás da interface `AudioIo`.
+    - `PcmAudioPlayer`: player PCM usando `AudioTrack` e, opcionalmente, `LoudnessEnhancer`.
+
+- `com.mercantil.core.websockets.token`
+  - `TokenProvider`: contrato (suspend) para obtenção de token (por ex., ID token de backend). Permite mocks e estratégias de refresh.
+
+---
+
+### Como tudo se conecta (alto nível)
+
+1) UI/Fragment apenas observa o `AssistantCallViewModel`.
+2) `AssistantCallViewModel` injeta `WsService` e expõe `streamingState: StateFlow<WsUiState>` para a UI.
+3) Ao iniciar (`startStreaming`), o VM delega para `WsService.start(language)`.
+4) `DefaultWsService`:
+   - Cria (via `VoiceSocketFactory`) um `VoiceSocket` configurado com URL e `WsHeadersProvider` (que usa `TokenProvider`).
+   - Inicializa `AudioIo` (que internamente usará `VoiceStreamer` e `PcmAudioPlayer`).
+   - Conecta o socket e coleta `events: Flow<WsEvent>`.
+   - Em `WsEvent.Open`, envia `protocol.onSocketOpen()` (handshake).
+   - Em `WsEvent.Text`, delega a `ProtocolEngine.onTextMessage(text)` e:
+     - Aplica `outcome.uiDelta` em `WsUiState`.
+     - Envia mensagens de `outcome.sendText` (ex.: LPA e payload extra).
+     - Se `outcome.readyToCapture` e permissão está OK, inicia a captura de microfone e passa frames para `sendBinary`.
+   - Em `WsEvent.Binary`, envia bytes para `AudioIo.pushForPlayback()`.
+   - Em `WsEvent.Closed/Failure`, atualiza estado e interrompe a captura.
+
+5) `DefaultAudioIo` inicia o player (`startPlayer`) e expõe:
+   - `frames(language)` para o serviço enviar ao servidor.
+   - `levels` para que a UI (via VM) mostre barras de microfone (com "boost" visual).
+
+6) Quando a sessão termina, `WsService.stop()` encerra captura/playback, cancela coleta de eventos e fecha o socket.
+
+---
+
+### Fluxo de dados (texto)
+
+UI ➝ ViewModel ➝ WsService ➝ VoiceSocket (events)
+                        ⤷ ProtocolEngine (handshake/LPA/payload)
+                        ⤷ AudioIo (VoiceStreamer ➝ frames ➝ sendBinary; Binary ➝ PcmAudioPlayer)
+
+Estados de UI (StateFlow) retornam de WsService para o ViewModel e voltam para a UI.
+
+---
+
+### Principais decisões de arquitetura
+
+- Separação de camadas (Clean):
+  - Transporte (WebSocket) não conhece protocolo nem áudio.
+  - Protocolo não conhece rede nem I/O.
+  - Áudio não conhece rede nem protocolo.
+  - `WsService` integra as três camadas e expõe estado para UI/VM.
+
+- SOLID:
+  - SRP: cada classe tem uma responsabilidade (e.g., `DefaultProtocolEngine` apenas processa mensagens/handshake; `KtorVoiceWsClient` apenas cuida do WebSocket; `PcmAudioPlayer` apenas reproduz PCM).
+  - DIP: UI depende de `WsService` (interface). `DefaultWsService` depende de interfaces (`VoiceSocket`, `ProtocolEngine`, `AudioIo`, `WsHeadersProvider`).
+  - OCP: facilmente estendível trocando implementações via DI (e.g., `VoiceSocket` mock para testes, protocolo alternativo).
+
+- Concorrência segura:
+  - `KtorVoiceWsClient` usa um canal/actor para serializar `sendText/sendBinary`, prevenindo race conditions.
+  - `DefaultWsService` usa escopo `SupervisorJob + Dispatchers.IO` e separa jobs para eventos e streaming de áudio.
+
+- Observabilidade:
+  - `AnalyzingVoiceSocket` fornece logs de alto nível do ciclo WS.
+  - `WsUiState` concentra informações relevantes para a UI e para depuração.
+
+---
+
+### Dependência e Injeção (Koin)
+
+- `commons/src/main/java/com/mercantil/di/commonsModule.kt`
+  - Fornece `HttpClient(OkHttp)` com `AssistantIaOkHttpClientProvider` e instala `WebSockets`.
+  - Fábricas: `DefaultVoiceSocketFactory`, `DefaultVoiceStreamerFactory`.
+
+- `commons/src/main/java/com/mercantil/assistant/di/iaModule.kt`
+  - `TokenProvider` → `AssistantIaPrefsTokenProvider`.
+  - `ProtocolEngine` → `DefaultProtocolEngine`.
+  - `WsService` → `DefaultWsService`, com `DefaultAudioIo` criado a partir do `VoiceStreamerFactory`.
+  - `AssistantCallViewModel` injeta `WsService` e expõe `streamingState` para a UI.
+
+---
+
+### Ciclos de vida típicos
+
+- Início:
+  1. UI garante permissão de microfone ➝ `WsService.updateRecordAudioPermission(true)`.
+  2. UI chama `startStreaming()` no VM ➝ `WsService.start(language)`.
+  3. `DefaultWsService` conecta WS, envia handshake, recebe ACK, envia LPA/payload, inicia captura e streaming de áudio.
+
+- Fim:
+  1. UI chama `stopStreaming()` ➝ `WsService.stop()`.
+  2. Serviço cancela jobs, para player, fecha socket e atualiza `WsUiState`.
+
+- Erros/Fechamento:
+  - `WsEvent.Failure/Closed` atualiza estado, interrompe captura. (Opcional: política de reconexão pode ser adicionada sem alterar a UI.)
+
+---
+
+### Pontos de extensão
+
+- Protocolo: substituir `DefaultProtocolEngine` por outro; testes unitários simples (entrada de texto ➝ `ProtocolOutcome`).
+- Transporte: usar outro cliente WS implementando `VoiceSocket` (ex.: mock de testes).
+- Áudio: trocar `PcmAudioPlayer` e/ou `VoiceStreamer` por alternativas; `DefaultAudioIo` continua atendendo ao contrato `AudioIo`.
+- Headers/Autenticação: `WsHeadersProvider` e `TokenProvider` permitem customizar origem e formato dos cabeçalhos.
+
+---
+
+### Testabilidade
+
+- `ProtocolEngine`: puro, testável com strings.
+- `DefaultWsService`: teste end‑to‑end com fakes (`VoiceSocket` que emite uma sequência de `WsEvent`, `AudioIo` que coleta bytes, etc.).
+- `KtorVoiceWsClient`: pode ser substituído por fake/mock em testes de domínio.
+
+---
+
+### FAQ rápida
+
+- "Onde coloco lógica de handshake/LPA?" ➝ `ProtocolEngine`.
+- "Quem decide quando começar a capturar áudio?" ➝ `DefaultWsService`, baseado no `ProtocolOutcome.readyToCapture` e permissão.
+- "Como entram Authorization/Device‑Id?" ➝ via `WsHeadersProvider` (que usa `TokenProvider`).
+- "A UI precisa conhecer WebSocket?" ➝ Não. Observa `WsUiState` via `ViewModel`.
+- "Posso reconectar automaticamente?" ➝ Sim, adicionar política de backoff no `DefaultWsService` sem mudar a UI.
+
+---
+
+### Referências úteis (arquivos)
+
+- Service: `service/WsService.kt`, `service/DefaultWsService.kt`
+- State: `state/WsUiState.kt`
+- Protocol: `protocol/ProtocolEngine.kt`, `protocol/DefaultProtocolEngine.kt`
+- Headers: `headers/WsHeadersProvider.kt`, `headers/DefaultWsHeadersProvider.kt`, `headers/AssistantIaPrefsTokenProvider.kt`
+- Voice wiring: `voice/VoiceSocketFactory.kt`, `voice/DefaultVoiceSocketFactory.kt`, `voice/DefaultVoiceStreamerFactory.kt`, `voice/AnalyzingVoiceSocket.kt`
+- Transport: `transport/VoiceSocket.kt`, `transport/WsEvent` (no mesmo arquivo), `transport/KtorVoiceWsClient.kt`
+- Audio: `audio/AudioIo.kt`, `audio/AudioPlayer.kt`, `audio/AudioCapture.kt`, `audio/DefaultAudioIo.kt`, `audio/PcmAudioPlayer.kt`, `audio/VoiceStreamer.kt`
+
